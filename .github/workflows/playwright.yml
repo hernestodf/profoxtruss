@@ -1,0 +1,72 @@
+name: Playwright
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo, pdo_sqlite, sqlite3
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Create fresh SQLite DB (schema + fixtures — nunca dados reais)
+        run: |
+          mkdir -p database
+          sqlite3 database/database.sqlite < database/migration.sql
+          sqlite3 database/database.sqlite < database/seed.sql
+
+      - name: Create .env for CI
+        run: |
+          cat > .env <<'EOF'
+          APP_ENV=testing
+          APP_DEBUG=true
+          DB_PATH=database/database.sqlite
+          SESSION_LIFETIME=7200
+          EOF
+
+      - name: Start PHP built-in server
+        # router.php reproduz o .htaccess do Apache (public/index.php como
+        # front controller, assets estáticos servidos direto) — ver
+        # public/router.php para o porquê de precisar dele com `php -S`.
+        run: |
+          php -S 127.0.0.1:8080 -t public public/router.php &
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null http://127.0.0.1:8080/login && break
+            sleep 1
+          done
+
+      - name: Run Playwright tests
+        env:
+          BASE_URL: http://127.0.0.1:8080/
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: tests/reports/html
+          retention-days: 14

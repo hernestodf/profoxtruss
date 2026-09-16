@@ -1,5 +1,15 @@
 RewriteEngine On
 RewriteBase /profoxtruss
+
+# Sem a condição "!-d": a raiz do projeto (`/profoxtruss/`, barra final) É um
+# diretório real em disco, então o mod_rewrite pulava o rewrite pra ela e o
+# Apache caía no DirectoryIndex (o index.php solto na raiz do projeto) em vez
+# de passar por public/index.php — SCRIPT_NAME ficava errado (faltando
+# /public), quebrando o cálculo de BASE_PATH (usado por url() pra montar
+# caminho de asset/rota) e, no index.php antigo, redirecionava sempre pro
+# login mesmo autenticado. Corrigido 2026-09-16 (achado ao montar os testes
+# E2E). Único outro efeito de tirar "!-d": pedir um subdiretório real (ex:
+# /profoxtruss/app/) agora cai no Router (404 da própria app) em vez do 403
+# cru do Apache — ambos já bloqueavam listagem, então sem mudança de exposição.
 RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ public/index.php [QSA,L]

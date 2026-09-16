@@ -578,6 +578,9 @@ function trussCalculator() {
                 preserveObjectStacking: true,
                 backgroundColor: '#070a13'
             });
+            // Referência de depuração/E2E (Playwright lê o estado real do Fabric.js
+            // pra simular drags precisos e checar posições) — não afeta produção.
+            window.__trussCanvas = canvas;
 
             // Mouse wheel zoom (at cursor position)
             canvas.on('mouse:wheel', (opt) => {

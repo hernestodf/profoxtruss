@@ -135,6 +135,32 @@ function csrfValidate(): void
     }
 }
 
+/**
+ * Mesma checagem de csrfValidate(), mas pra endpoints JSON (ApiController):
+ * eles não têm $_POST (o body é JSON puro), então o token vem por um header
+ * próprio (X-CSRF-Token) em vez de campo de formulário. Sem isto, qualquer
+ * um dos métodos POST/DELETE de app/controllers/ApiController.php aceitava
+ * a requisição só com a sessão da vítima "andando junto" — nenhum token era
+ * checado — e como getJsonInput() faz json_decode() sem olhar Content-Type,
+ * um POST cross-site com Content-Type: text/plain (não dispara preflight
+ * CORS) e corpo JSON válido passava direto. Responde JSON (não die() com
+ * HTML) porque quem chama espera `{ok, ...}`.
+ */
+function csrfValidateJson(): void
+{
+    $token = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', $token)) {
+        appLog('warning', 'CSRF token inválido (API JSON)', '', 0, [
+            'ip'  => $_SERVER['REMOTE_ADDR'] ?? '?',
+            'uri' => $_SERVER['REQUEST_URI'] ?? '?',
+        ]);
+        http_response_code(403);
+        header('Content-Type: application/json');
+        echo json_encode(['ok' => false, 'error' => 'Requisição inválida (CSRF).']);
+        exit;
+    }
+}
+
 // ── Log ────────────────────────────────────────────────────────────────────────
 
 /**

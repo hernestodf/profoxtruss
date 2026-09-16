@@ -59,6 +59,7 @@ class ApiController extends BaseController
     public function salvarPeca(): void
     {
         $this->authorize('admin.view'); // Apenas admin gerencia estoque
+        $this->csrfJson();
 
         $input = $this->getJsonInput();
         $id = isset($input['id']) ? (int) $input['id'] : null;
@@ -103,6 +104,7 @@ class ApiController extends BaseController
     public function deletarPeca(): void
     {
         $this->authorize('admin.view');
+        $this->csrfJson();
         $id = (int) $this->param('id');
 
         $repo = new ProdutoRepository();
@@ -158,6 +160,7 @@ class ApiController extends BaseController
     public function salvarProjeto(): void
     {
         $this->authorize('project.create');
+        $this->csrfJson();
 
         $input = $this->getJsonInput();
         $id = isset($input['id']) ? (int) $input['id'] : null;
@@ -195,6 +198,7 @@ class ApiController extends BaseController
     public function deletarProjeto(): void
     {
         $this->authorize('project.delete');
+        $this->csrfJson();
         $id = (int) $this->param('id');
 
         $repo = new ProjectRepository();

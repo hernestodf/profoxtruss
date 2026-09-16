@@ -419,7 +419,7 @@ function pecasManager() {
             this.saving = true;
             fetch('<?= url("/api/pecas") ?>', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...window.csrfHeader() },
                 body: JSON.stringify(this.form)
             })
             .then(r => r.json())
@@ -452,7 +452,8 @@ function pecasManager() {
             if (!confirm(`Tem certeza que deseja excluir a peça "${nome}"?`)) return;
             
             fetch(`<?= url("/api/pecas") ?>/${id}`, {
-                method: 'DELETE'
+                method: 'DELETE',
+                headers: window.csrfHeader()
             })
             .then(r => r.json())
             .then(res => {

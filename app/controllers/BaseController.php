@@ -53,6 +53,11 @@ abstract class BaseController
         csrfValidate();
     }
 
+    protected function csrfJson(): void
+    {
+        csrfValidateJson();
+    }
+
     // ── Rota ──────────────────────────────────────────────────────────────────
 
     protected function param(string $name, mixed $default = null): mixed

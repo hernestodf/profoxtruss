@@ -3156,7 +3156,7 @@ function trussCalculator() {
 
             fetch('<?= url("/api/projects") ?>', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...window.csrfHeader() },
                 body: JSON.stringify(payload)
             })
             .then(r => r.json())
@@ -3284,7 +3284,8 @@ function trussCalculator() {
         deleteProject(id) {
             if (confirm("Deseja realmente excluir este projeto permanentemente?")) {
                 fetch(`<?= url("/api/projects/") ?>${id}`, {
-                    method: 'DELETE'
+                    method: 'DELETE',
+                    headers: window.csrfHeader()
                 })
                 .then(r => r.json())
                 .then(res => {

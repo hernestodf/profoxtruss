@@ -3,6 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="<?= csrfToken() ?>">
+    <script>
+        // Header CSRF pros fetch() da API JSON (app/controllers/ApiController.php,
+        // validado por csrfValidateJson() em app/helpers.php) — essas rotas não têm
+        // $_POST (body é JSON puro), então o token de formulário não chega nelas;
+        // o valor vem da mesma sessão, só que lido da meta tag acima.
+        window.csrfHeader = () => ({ 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || '' });
+    </script>
     <title><?php Layout::slot('title', 'ProFoxTruss') ?> — ProFoxTruss</title>
     
     <!-- Google Fonts -->

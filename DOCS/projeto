@@ -1,0 +1,1337 @@
+
+Aqui está um prompt detalhado para você usar com uma IA (como eu) ou para guiar um desenvolvedor na criação do seu sistema Box Truss Calculator com backend em PHP, interface moderna, escalabilidade, rotação de componentes, exportação para PDF/Excel e todas as funcionalidades que você solicitou.
+
+📌 PROMPT PARA DESENVOLVIMENTO DO SISTEMA PROFOXTRUSS 
+
+Contexto:
+Eu preciso de um sistema web interativo para calcular e projetar estruturas do tipo box truss (treliças em caixão). O sistema deve permitir que o usuário:
+
+Insira as dimensões (largura, altura, comprimento) da estrutura.
+Selecionar componentes (ex: perfis Q30 com medidas de 0,30m, 0,50m, 1,00m, 1,50m, 2,00m, 3,00m, 4,00m, 5,00m, sleeves, sapatas, etc.).
+Arrastar e soltar (drag-and-drop) os componentes em um canvas 2D para montar a estrutura visualmente.
+Rotacionar componentes (ex: barras Q30 em 0°, 45°, 90°).
+Ajustar a escala do canvas (ex: 1m = 20px, 1m = 50px, 1m = 100px).
+Calcular automaticamente o quantitativo de materiais com base no layout montado.
+Exportar o projeto para PDF (com desenho e lista de materiais) e Excel (apenas a lista de materiais).
+Salvar e carregar projetos (via backend em PHP + MySQL).
+
+Requisitos Técnicos:
+
+Frontend: HTML5, CSS3 (com framework moderno como ou Tailwind CSS), JavaScript (ES6+), HTML5 Canvas ou SVG para desenho.
+Backend: PHP 8.0+ (orientado a objetos), SQLITE (para salvar projetos).
+Bibliotecas opcionais:
+
+Fabric.js (para manipulação avançada de objetos no canvas, incluindo rotação e drag-and-drop).
+jsPDF ou PDFKit (para geração de PDF).
+SheetJS (xlsx.js) ou PhpSpreadsheet (para exportação para Excel).
+Three.js (opcional, para visualização 3D no futuro).
+
+Estrutura de arquivos:
+
+
+
+box-truss-calculator/
+├── assets/
+│   ├── css/
+│   │   └── style.css
+│   ├── js/
+│   │   ├── fabric.min.js
+│   │   ├── xlsx.full.min.js
+│   │   ├── jspdf.min.js
+│   │   └── script.js
+│   └── images/
+├── includes/
+│   ├── config.php (conexão com MySQL)
+│   ├── functions.php (funções PHP para cálculo e exportação)
+│   └── header.php / footer.php
+├── projects/ (pasta para salvar projetos exportados)
+├── index.php (página principal)
+├── save_project.php (salvar projeto no banco)
+├── load_project.php (carregar projeto do banco)
+├── export_pdf.php (gerar PDF)
+├── export_excel.php (gerar Excel)
+└── view_project.php (visualizar projeto salvo)
+
+
+
+
+
+🎨 REQUISITOS DA INTERFACE (UI/UX)
+1. Layout Geral
+
+Design moderno e responsivo (funciona em desktop e tablet).
+Tema escuro/claro (opcional, com toggle).
+Barra de ferramentas na parte superior com:
+
+Botões para salvar, carregar, exportar (PDF/Excel), limpar canvas, ajustar escala.
+Seletor de escala (dropdown: 1m = 20px, 1m = 50px, 1m = 100px).
+Botão para ativar/desativar grade no canvas.
+
+2. Painel de Dimensões (Lado Esquerdo)
+
+Campos para inserir:
+
+Largura (m) [input type="number"]
+Altura (m) [input type="number"]
+Comprimento (m) [input type="number"]
+
+Botão "Calcular Automático": Gera uma sugestão de layout com base nas dimensões (opcional).
+Botão "Limpar": Reseta todos os campos e o canvas.
+3. Painel de Componentes (Lado Direito)
+
+Lista de componentes disponíveis (arrastáveis):
+
+Perfis Q30: 0.30m, 0.50m, 1.00m, 1.50m, 2.00m, 3.00m, 4.00m, 5.00m (cada um como um botão/bloco arrastável).
+Sleeve (conector).
+Sapata (base).
+Outros (ex: Q50, Q100, diagonais, etc.).
+
+Visualização dos componentes com ícones ou miniaturas (ex: barra verde para Q30, círculo para sleeve, quadrado para sapata).
+4. Área do Canvas (Centro)
+
+Canvas interativo (HTML5 Canvas ou SVG) com:
+
+Grade (opcional, para alinhamento).
+Componentes arrastáveis (com rotação via clique ou arrasto circular).
+Snap to grid (alinhamento automático à grade).
+Zoom in/out (com scroll do mouse ou botões).
+Pan (arrastar o canvas para mover a vista).
+
+Legenda mostrando a escala atual (ex: "Escala: 1m = 50px").
+5. Painel de Quantitativo (Inferior)
+
+Tabela dinâmica com o quantitativo de materiais:
+
+
+
+
+
+
+
+  
+    
+      Componente
+      Tamanho
+      Quantidade
+      Peso Unitário (kg)
+      Peso Total (kg)
+    
+  
+  
+    
+      Q30
+      1.50m
+      12
+      3.5
+      42.0
+    
+    
+      Sleeve
+      -
+      8
+      0.2
+      1.6
+    
+    
+      Sapata
+      -
+      4
+      1.0
+      4.0
+    
+  
+
+
+
+
+Botões para exportar (PDF/Excel).
+6. Modal de Projetos Salvos
+
+Lista de projetos salvos (nome, data, dimensões).
+Botões para:
+
+Carregar projeto.
+Excluir projeto.
+Visualizar detalhes.
+
+
+⚙️ FUNCIONALIDADES PRINCIPAIS
+1. Drag-and-Drop com Rotação
+
+Arrastar componentes do painel para o canvas.
+Rotacionar componentes no canvas:
+
+Clicar em um componente e arrastar um controle de rotação (círculo ao redor do objeto).
+Ou usar teclas de atalho (ex: R para rotacionar em 45°).
+
+Snap to grid: Componentes alinham automaticamente à grade (opcional).
+2. Ajuste de Escala
+
+Seletor de escala (dropdown):
+
+1m = 20px (para estruturas grandes).
+1m = 50px (padrão).
+1m = 100px (para estruturas pequenas).
+
+Escala dinâmica: O canvas se ajusta automaticamente ao mudar a escala.
+3. Cálculo Automático do Quantitativo
+
+Baseado no layout arrastado:
+
+Conta quantos componentes de cada tipo foram adicionados.
+Calcula o peso total (se o peso unitário de cada componente for cadastrado no banco).
+
+Baseado em dimensões (opcional):
+
+Se o usuário inserir largura, altura e comprimento, o sistema sugere um layout padrão (ex: número de painéis, barras longitudinais, etc.).
+
+4. Exportação para PDF
+
+Conteúdo do PDF:
+
+Página 1: Desenho da estrutura (canvas renderizado).
+Página 2: Tabela de quantitativo (componente, quantidade, peso).
+Cabeçalho: Nome do projeto, data, dimensões.
+
+Biblioteca sugerida: jsPDF (frontend) ou TCPDF/mpdf (backend em PHP).
+5. Exportação para Excel
+
+Conteúdo do Excel:
+
+Planilha com a tabela de quantitativo.
+Gráfico de distribuição de materiais (opcional).
+
+Biblioteca sugerida: SheetJS (xlsx.js) (frontend) ou PhpSpreadsheet (backend).
+6. Salvamento de Projetos (Backend em PHP + SQLITE)
+
+Tabela no banco de dados:
+
+
+
+CREATE TABLE projects (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    width DECIMAL(10,2) NOT NULL,
+    height DECIMAL(10,2) NOT NULL,
+    length DECIMAL(10,2) NOT NULL,
+    scale INT NOT NULL DEFAULT 50, -- 1m = 50px
+    components JSON NOT NULL, -- Array de componentes (type, length, x, y, rotation)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+
+
+Funções PHP:
+
+save_project.php: Recebe os dados via POST e salva no banco.
+load_project.php: Carrega um projeto do banco e retorna os dados em JSON.
+delete_project.php: Exclui um projeto do banco.
+
+
+📂 ESTRUTURA DO CÓDIGO
+1. Frontend (HTML + JavaScript)
+index.php
+
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Box Truss Calculator</title>
+    <!-- Bootstrap 5 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Fabric.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <!-- SheetJS (Excel) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.20.0/xlsx.full.min.js"></script>
+    <!-- jsPDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- CSS Customizado -->
+    <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+    <!-- Barra de Ferramentas -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">Box Truss Calculator</a>
+            <div class="d-flex">
+                <select id="scaleSelector" class="form-select form-select-sm me-2">
+                    <option value="20">1m = 20px</option>
+                    <option value="50" selected>1m = 50px</option>
+                    <option value="100">1m = 100px</option>
+                </select>
+                <button id="toggleGrid" class="btn btn-sm btn-outline-light me-2">Grade</button>
+                <button id="clearCanvas" class="btn btn-sm btn-outline-danger me-2">Limpar</button>
+                <button id="calculate" class="btn btn-sm btn-primary me-2">Calcular</button>
+                <button id="saveProject" class="btn btn-sm btn-success me-2">Salvar</button>
+                <button id="loadProject" class="btn btn-sm btn-info me-2">Carregar</button>
+                <button id="exportPDF" class="btn btn-sm btn-warning me-2">Exportar PDF</button>
+                <button id="exportExcel" class="btn btn-sm btn-secondary">Exportar Excel</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-3">
+        <div class="row">
+            <!-- Painel de Dimensões -->
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Dimensões da Estrutura</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="width" class="form-label">Largura (m)</label>
+                            <input type="number" class="form-control" id="width" step="0.01" placeholder="Ex: 2.0">
+                        </div>
+                        <div class="mb-3">
+                            <label for="height" class="form-label">Altura (m)</label>
+                            <input type="number" class="form-control" id="height" step="0.01" placeholder="Ex: 1.0">
+                        </div>
+                        <div class="mb-3">
+                            <label for="length" class="form-label">Comprimento (m)</label>
+                            <input type="number" class="form-control" id="length" step="0.01" placeholder="Ex: 5.0">
+                        </div>
+                        <button id="autoLayout" class="btn btn-primary w-100">Gerar Layout Automático</button>
+                    </div>
+                </div>
+
+                <!-- Painel de Componentes -->
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5>Componentes</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex flex-wrap gap-2">
+                            <!-- Perfis Q30 -->
+                            <div class="component-btn" data-type="Q30" data-length="0.30">Q30 (0.30m)</div>
+                            <div class="component-btn" data-type="Q30" data-length="0.50">Q30 (0.50m)</div>
+                            <div class="component-btn" data-type="Q30" data-length="1.00">Q30 (1.00m)</div>
+                            <div class="component-btn" data-type="Q30" data-length="1.50">Q30 (1.50m)</div>
+                            <div class="component-btn" data-type="Q30" data-length="2.00">Q30 (2.00m)</div>
+                            <div class="component-btn" data-type="Q30" data-length="3.00">Q30 (3.00m)</div>
+                            <div class="component-btn" data-type="Q30" data-length="4.00">Q30 (4.00m)</div>
+                            <div class="component-btn" data-type="Q30" data-length="5.00">Q30 (5.00m)</div>
+                            <!-- Outros Componentes -->
+                            <div class="component-btn" data-type="sleeve">Sleeve</div>
+                            <div class="component-btn" data-type="sapata">Sapata</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Área do Canvas -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Layout da Estrutura</h5>
+                    </div>
+                    <div class="card-body">
+                        <div style="position: relative;">
+                            <canvas id="canvas" width="800" height="600"></canvas>
+                            <div id="scaleInfo" style="position: absolute; bottom: 10px; right: 10px; background: rgba(255,255,255,0.8); padding: 5px; border-radius: 4px;">
+                                Escala: <span id="currentScale">1m = 50px</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Painel de Quantitativo -->
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Quantitativo de Materiais</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-bordered">
+                                <thead>
+                                    <tr>
+                                        <th>Componente</th>
+                                        <th>Tamanho</th>
+                                        <th>Qtd.</th>
+                                        <th>Peso (kg)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="quantitativoTable">
+                                    <!-- Preenchido dinamicamente -->
+                                </tbody>
+                                <tfoot>
+                                    <tr>
+                                        <th colspan="3">Total:</th>
+                                        <th id="totalWeight">0 kg</th>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Salvar/Carregar Projetos -->
+    <div class="modal fade" id="projectModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Projetos Salvos</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="projectList">
+                        <!-- Lista de projetos carregada via AJAX -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Script Customizado -->
+    <script src="assets/js/script.js"></script>
+</body>
+</html>
+
+
+
+
+script.js
+
+
+// Variáveis globais
+let canvas = new fabric.Canvas('canvas', {
+    selection: false,
+    preserveObjectStacking: true
+});
+let scale = 50; // 1m = 50px (padrão)
+let gridEnabled = true;
+let components = []; // Array para armazenar componentes no canvas
+let projectName = "Projeto Sem Nome";
+
+// Dados dos componentes (peso unitário em kg)
+const componentData = {
+    Q30: {
+        0.30: { weight: 0.5 },
+        0.50: { weight: 0.8 },
+        1.00: { weight: 1.6 },
+        1.50: { weight: 2.4 },
+        2.00: { weight: 3.2 },
+        3.00: { weight: 4.8 },
+        4.00: { weight: 6.4 },
+        5.00: { weight: 8.0 }
+    },
+    sleeve: { weight: 0.2 },
+    sapata: { weight: 1.0 }
+};
+
+// Inicializa o canvas
+function initCanvas() {
+    canvas.clear();
+    if (gridEnabled) drawGrid();
+    canvas.renderAll();
+}
+
+// Desenha grade no canvas
+function drawGrid() {
+    const gridSize = 20; // Tamanho da grade em pixels
+    const width = canvas.width;
+    const height = canvas.height;
+
+    for (let i = 0; i < width; i += gridSize) {
+        canvas.add(new fabric.Line([i, 0, i, height], {
+            stroke: '#eee',
+            selectable: false,
+            evented: false
+        }));
+    }
+    for (let i = 0; i < height; i += gridSize) {
+        canvas.add(new fabric.Line([0, i, width, i], {
+            stroke: '#eee',
+            selectable: false,
+            evented: false
+        }));
+    }
+}
+
+// Adiciona um componente ao canvas
+function addComponent(type, length, x, y) {
+    let obj;
+    if (type === 'Q30') {
+        obj = new fabric.Rect({
+            left: x,
+            top: y,
+            fill: '#4CAF50',
+            width: length * scale,
+            height: 10,
+            originX: 'center',
+            originY: 'center',
+            hasControls: true,
+            hasRotatingControl: true,
+            lockRotation: false,
+            data: { type, length }
+        });
+    } else if (type === 'sleeve') {
+        obj = new fabric.Circle({
+            left: x,
+            top: y,
+            fill: '#FF5722',
+            radius: 10,
+            originX: 'center',
+            originY: 'center',
+            hasControls: true,
+            hasRotatingControl: true,
+            data: { type }
+        });
+    } else if (type === 'sapata') {
+        obj = new fabric.Rect({
+            left: x,
+            top: y,
+            fill: '#2196F3',
+            width: 20,
+            height: 20,
+            originX: 'center',
+            originY: 'center',
+            hasControls: true,
+            hasRotatingControl: true,
+            data: { type }
+        });
+    }
+
+    obj.on('modified', () => {
+        updateQuantitativo();
+    });
+
+    canvas.add(obj);
+    components.push(obj);
+    updateQuantitativo();
+}
+
+// Atualiza a tabela de quantitativo
+function updateQuantitativo() {
+    const quantitativo = {
+        Q30: {},
+        sleeve: 0,
+        sapata: 0
+    };
+    let totalWeight = 0;
+
+    components.forEach(comp => {
+        const data = comp.data;
+        if (data.type === 'Q30') {
+            if (!quantitativo.Q30[data.length]) {
+                quantitativo.Q30[data.length] = 0;
+            }
+            quantitativo.Q30[data.length]++;
+            totalWeight += componentData.Q30[data.length].weight;
+        } else if (data.type === 'sleeve') {
+            quantitativo.sleeve++;
+            totalWeight += componentData.sleeve.weight;
+        } else if (data.type === 'sapata') {
+            quantitativo.sapata++;
+            totalWeight += componentData.sapata.weight;
+        }
+    });
+
+    // Atualiza a tabela HTML
+    const tableBody = document.getElementById('quantitativoTable');
+    tableBody.innerHTML = '';
+
+    for (const length in quantitativo.Q30) {
+        const qtd = quantitativo.Q30[length];
+        const weight = componentData.Q30[length].weight * qtd;
+        tableBody.innerHTML += `
+            <tr>
+                <td>Q30</td>
+                <td>${length}m</td>
+                <td>${qtd}</td>
+                <td>${weight.toFixed(2)}</td>
+            </tr>
+        `;
+    }
+
+    if (quantitativo.sleeve > 0) {
+        const weight = componentData.sleeve.weight * quantitativo.sleeve;
+        tableBody.innerHTML += `
+            <tr>
+                <td>Sleeve</td>
+                <td>-</td>
+                <td>${quantitativo.sleeve}</td>
+                <td>${weight.toFixed(2)}</td>
+            </tr>
+        `;
+    }
+
+    if (quantitativo.sapata > 0) {
+        const weight = componentData.sapata.weight * quantitativo.sapata;
+        tableBody.innerHTML += `
+            <tr>
+                <td>Sapata</td>
+                <td>-</td>
+                <td>${quantitativo.sapata}</td>
+                <td>${weight.toFixed(2)}</td>
+            </tr>
+        `;
+    }
+
+    document.getElementById('totalWeight').textContent = `${totalWeight.toFixed(2)} kg`;
+}
+
+// Gera layout automático com base nas dimensões
+function generateAutoLayout() {
+    const width = parseFloat(document.getElementById('width').value) || 0;
+    const height = parseFloat(document.getElementById('height').value) || 0;
+    const length = parseFloat(document.getElementById('length').value) || 0;
+
+    if (width <= 0 || height <= 0 || length <= 0) {
+        alert("Por favor, insira dimensões válidas.");
+        return;
+    }
+
+    // Limpa o canvas
+    canvas.clear();
+    components = [];
+
+    // Adiciona barras longitudinais (topo e base)
+    const longitudinalLength = length;
+    const qtdLongitudinal = 2; // Topo e base
+    for (let i = 0; i < qtdLongitudinal; i++) {
+        const y = i === 0 ? height * scale / 2 : height * scale / 2 + height * scale;
+        addComponent('Q30', longitudinalLength, longitudinalLength * scale / 2, y);
+    }
+
+    // Adiciona barras verticais (a cada 1m)
+    const verticalSpacing = 1.0; // 1m entre barras verticais
+    const qtdVertical = Math.floor(length / verticalSpacing) + 1;
+    for (let i = 0; i < qtdVertical; i++) {
+        const x = i * verticalSpacing * scale;
+        addComponent('Q30', height, x, height * scale / 2 + height * scale / 2);
+    }
+
+    // Adiciona diagonais (a cada 1m)
+    for (let i = 0; i < qtdVertical - 1; i++) {
+        const x1 = i * verticalSpacing * scale;
+        const x2 = (i + 1) * verticalSpacing * scale;
+        const y1 = height * scale / 2 + height * scale;
+        const y2 = height * scale / 2;
+        const diagonalLength = Math.sqrt(Math.pow(verticalSpacing, 2) + Math.pow(height, 2));
+        addComponent('Q30', diagonalLength, (x1 + x2) / 2, (y1 + y2) / 2);
+    }
+
+    // Adiciona sapatas (4 cantos)
+    addComponent('sapata', null, 0, height * scale / 2 + height * scale);
+    addComponent('sapata', null, length * scale, height * scale / 2 + height * scale);
+    addComponent('sapata', null, 0, height * scale / 2);
+    addComponent('sapata', null, length * scale, height * scale / 2);
+
+    // Adiciona sleeves (nas conexões)
+    for (let i = 0; i < qtdVertical; i++) {
+        const x = i * verticalSpacing * scale;
+        addComponent('sleeve', null, x, height * scale / 2 + height * scale);
+        addComponent('sleeve', null, x, height * scale / 2);
+    }
+
+    updateQuantitativo();
+}
+
+// Exporta para PDF
+function exportToPDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    // Página 1: Desenho da estrutura
+    const canvasData = canvas.toDataURL({ format: 'png', quality: 0.8 });
+    doc.addImage(canvasData, 'PNG', 10, 10, 180, 100);
+
+    // Página 2: Tabela de quantitativo
+    doc.addPage();
+    doc.setFontSize(16);
+    doc.text("Quantitativo de Materiais", 10, 20);
+
+    const tableData = [];
+    const tableHeaders = [["Componente", "Tamanho", "Qtd.", "Peso (kg)"]];
+
+    const quantitativo = {
+        Q30: {},
+        sleeve: 0,
+        sapata: 0
+    };
+    let totalWeight = 0;
+
+    components.forEach(comp => {
+        const data = comp.data;
+        if (data.type === 'Q30') {
+            if (!quantitativo.Q30[data.length]) {
+                quantitativo.Q30[data.length] = 0;
+            }
+            quantitativo.Q30[data.length]++;
+            totalWeight += componentData.Q30[data.length].weight;
+        } else if (data.type === 'sleeve') {
+            quantitativo.sleeve++;
+            totalWeight += componentData.sleeve.weight;
+        } else if (data.type === 'sapata') {
+            quantitativo.sapata++;
+            totalWeight += componentData.sapata.weight;
+        }
+    });
+
+    for (const length in quantitativo.Q30) {
+        const qtd = quantitativo.Q30[length];
+        const weight = componentData.Q30[length].weight * qtd;
+        tableData.push([`Q30 (${length}m)`, "", qtd, weight.toFixed(2)]);
+    }
+
+    if (quantitativo.sleeve > 0) {
+        const weight = componentData.sleeve.weight * quantitativo.sleeve;
+        tableData.push(["Sleeve", "", quantitativo.sleeve, weight.toFixed(2)]);
+    }
+
+    if (quantitativo.sapata > 0) {
+        const weight = componentData.sapata.weight * quantitativo.sapata;
+        tableData.push(["Sapata", "", quantitativo.sapata, weight.toFixed(2)]);
+    }
+
+    tableData.push(["Total", "", "", totalWeight.toFixed(2)]);
+
+    doc.autoTable({
+        head: tableHeaders,
+        body: tableData,
+        startY: 30
+    });
+
+    doc.save(`box_truss_${projectName}.pdf`);
+}
+
+// Exporta para Excel
+function exportToExcel() {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet([]);
+
+    // Adiciona cabeçalho
+    XLSX.utils.sheet_add_aoa(ws, [["Componente", "Tamanho", "Quantidade", "Peso Unitário (kg)", "Peso Total (kg)"]], { origin: "A1" });
+
+    // Adiciona dados
+    const quantitativo = {
+        Q30: {},
+        sleeve: 0,
+        sapata: 0
+    };
+    let totalWeight = 0;
+    let row = 2;
+
+    components.forEach(comp => {
+        const data = comp.data;
+        if (data.type === 'Q30') {
+            if (!quantitativo.Q30[data.length]) {
+                quantitativo.Q30[data.length] = 0;
+            }
+            quantitativo.Q30[data.length]++;
+        } else if (data.type === 'sleeve') {
+            quantitativo.sleeve++;
+        } else if (data.type === 'sapata') {
+            quantitativo.sapata++;
+        }
+    });
+
+    for (const length in quantitativo.Q30) {
+        const qtd = quantitativo.Q30[length];
+        const unitWeight = componentData.Q30[length].weight;
+        const total = unitWeight * qtd;
+        totalWeight += total;
+        XLSX.utils.sheet_add_aoa(ws, [[`Q30 (${length}m)`, "", qtd, unitWeight, total.toFixed(2)]], { origin: { r: row, c: 0 } });
+        row++;
+    }
+
+    if (quantitativo.sleeve > 0) {
+        const unitWeight = componentData.sleeve.weight;
+        const total = unitWeight * quantitativo.sleeve;
+        totalWeight += total;
+        XLSX.utils.sheet_add_aoa(ws, [["Sleeve", "", quantitativo.sleeve, unitWeight, total.toFixed(2)]], { origin: { r: row, c: 0 } });
+        row++;
+    }
+
+    if (quantitativo.sapata > 0) {
+        const unitWeight = componentData.sapata.weight;
+        const total = unitWeight * quantitativo.sapata;
+        totalWeight += total;
+        XLSX.utils.sheet_add_aoa(ws, [["Sapata", "", quantitativo.sapata, unitWeight, total.toFixed(2)]], { origin: { r: row, c: 0 } });
+        row++;
+    }
+
+    // Adiciona total
+    XLSX.utils.sheet_add_aoa(ws, [["Total", "", "", "", totalWeight.toFixed(2)]], { origin: { r: row, c: 0 } });
+
+    // Adiciona a planilha ao workbook
+    XLSX.utils.book_append_sheet(wb, ws, "Quantitativo");
+
+    // Exporta o arquivo
+    XLSX.writeFile(wb, `box_truss_${projectName}.xlsx`);
+}
+
+// Salva o projeto no backend
+function saveProject() {
+    const width = document.getElementById('width').value;
+    const height = document.getElementById('height').value;
+    const length = document.getElementById('length').value;
+    const scale = document.getElementById('scaleSelector').value;
+
+    // Serializa os componentes
+    const componentsData = components.map(comp => ({
+        type: comp.data.type,
+        length: comp.data.length,
+        x: comp.left,
+        y: comp.top,
+        rotation: comp.angle,
+        width: comp.width,
+        height: comp.height
+    }));
+
+    // Dados para enviar ao backend
+    const projectData = {
+        name: projectName || "Projeto Sem Nome",
+        width,
+        height,
+        length,
+        scale,
+        components: JSON.stringify(componentsData)
+    };
+
+    // Envia para o backend via AJAX
+    fetch('save_project.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(projectData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert("Projeto salvo com sucesso!");
+            loadProjects(); // Recarrega a lista de projetos
+        } else {
+            alert("Erro ao salvar projeto: " + data.message);
+        }
+    })
+    .catch(error => {
+        console.error("Erro:", error);
+        alert("Erro ao salvar projeto.");
+    });
+}
+
+// Carrega a lista de projetos
+function loadProjects() {
+    fetch('load_project.php')
+    .then(response => response.json())
+    .then(data => {
+        const projectList = document.getElementById('projectList');
+        projectList.innerHTML = '';
+
+        if (data.projects && data.projects.length > 0) {
+            data.projects.forEach(project => {
+                projectList.innerHTML += `
+                    <div class="card mb-2">
+                        <div class="card-body">
+                            <h5 class="card-title">${project.name}</h5>
+                            <p class="card-text">
+                                Dimensões: ${project.width}m x ${project.height}m x ${project.comprimento}m<br>
+                                Data: ${project.created_at}
+                            </p>
+                            <button class="btn btn-sm btn-primary load-project" data-id="${project.id}">Carregar</button>
+                            <button class="btn btn-sm btn-danger delete-project" data-id="${project.id}">Excluir</button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            // Adiciona eventos aos botões
+            document.querySelectorAll('.load-project').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const projectId = btn.dataset.id;
+                    loadProject(projectId);
+                });
+            });
+
+            document.querySelectorAll('.delete-project').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const projectId = btn.dataset.id;
+                    if (confirm("Tem certeza que deseja excluir este projeto?")) {
+                        deleteProject(projectId);
+                    }
+                });
+            });
+        } else {
+            projectList.innerHTML = '<p>Nenhum projeto salvo.</p>';
+        }
+    })
+    .catch(error => {
+        console.error("Erro:", error);
+        alert("Erro ao carregar projetos.");
+    });
+}
+
+// Carrega um projeto específico
+function loadProject(projectId) {
+    fetch(`load_project.php?id=${projectId}`)
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const project = data.project;
+            document.getElementById('width').value = project.width;
+            document.getElementById('height').value = project.height;
+            document.getElementById('length').value = project.length;
+            document.getElementById('scaleSelector').value = project.scale;
+            scale = parseInt(project.scale);
+
+            // Limpa o canvas
+            canvas.clear();
+            components = [];
+
+            // Carrega os componentes
+            const componentsData = JSON.parse(project.components);
+            componentsData.forEach(comp => {
+                if (comp.type === 'Q30') {
+                    addComponent(comp.type, comp.length, comp.x, comp.y);
+                    const obj = components[components.length - 1];
+                    obj.set({ angle: comp.rotation });
+                    obj.setCoords();
+                } else {
+                    addComponent(comp.type, null, comp.x, comp.y);
+                    const obj = components[components.length - 1];
+                    obj.set({ angle: comp.rotation });
+                    obj.setCoords();
+                }
+            });
+
+            canvas.renderAll();
+            updateQuantitativo();
+            document.getElementById('currentScale').textContent = `1m = ${scale}px`;
+            bootstrap.Modal.getInstance(document.getElementById('projectModal')).hide();
+        } else {
+            alert("Erro ao carregar projeto: " + data.message);
+        }
+    })
+    .catch(error => {
+        console.error("Erro:", error);
+        alert("Erro ao carregar projeto.");
+    });
+}
+
+// Exclui um projeto
+function deleteProject(projectId) {
+    fetch(`delete_project.php?id=${projectId}`)
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert("Projeto excluído com sucesso!");
+            loadProjects();
+        } else {
+            alert("Erro ao excluir projeto: " + data.message);
+        }
+    })
+    .catch(error => {
+        console.error("Erro:", error);
+        alert("Erro ao excluir projeto.");
+    });
+}
+
+// Inicializa o sistema
+document.addEventListener('DOMContentLoaded', () => {
+    // Inicializa o canvas
+    initCanvas();
+    drawGrid();
+
+    // Seletor de escala
+    document.getElementById('scaleSelector').addEventListener('change', (e) => {
+        scale = parseInt(e.target.value);
+        document.getElementById('currentScale').textContent = `1m = ${scale}px`;
+        // Reescalona os componentes (opcional)
+    });
+
+    // Botão de grade
+    document.getElementById('toggleGrid').addEventListener('click', () => {
+        gridEnabled = !gridEnabled;
+        initCanvas();
+    });
+
+    // Botão de limpar
+    document.getElementById('clearCanvas').addEventListener('click', () => {
+        canvas.clear();
+        components = [];
+        initCanvas();
+        updateQuantitativo();
+    });
+
+    // Botão de calcular
+    document.getElementById('calculate').addEventListener('click', updateQuantitativo);
+
+    // Botão de layout automático
+    document.getElementById('autoLayout').addEventListener('click', generateAutoLayout);
+
+    // Botão de salvar
+    document.getElementById('saveProject').addEventListener('click', () => {
+        projectName = prompt("Digite o nome do projeto:", projectName || "Projeto Sem Nome");
+        if (projectName) {
+            saveProject();
+        }
+    });
+
+    // Botão de carregar
+    document.getElementById('loadProject').addEventListener('click', () => {
+        loadProjects();
+        const modal = new bootstrap.Modal(document.getElementById('projectModal'));
+        modal.show();
+    });
+
+    // Botão de exportar PDF
+    document.getElementById('exportPDF').addEventListener('click', exportToPDF);
+
+    // Botão de exportar Excel
+    document.getElementById('exportExcel').addEventListener('click', exportToExcel);
+
+    // Eventos de drag-and-drop
+    document.querySelectorAll('.component-btn').forEach(btn => {
+        btn.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', JSON.stringify({
+                type: btn.dataset.type,
+                length: btn.dataset.length ? parseFloat(btn.dataset.length) : null
+            }));
+        });
+    });
+
+    canvas.addEventListener('dragover', (e) => {
+        e.preventDefault();
+    });
+
+    canvas.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        addComponent(data.type, data.length, x, y);
+    });
+
+    // Carrega projetos ao abrir o modal
+    loadProjects();
+});
+
+
+
+
+2. Backend (PHP + MySQL)
+config.php
+
+
+<?php
+// Configuração do banco de dados
+define('DB_HOST', 'localhost');
+define('DB_USER', 'seu_usuario');
+define('DB_PASS', 'sua_senha');
+define('DB_NAME', 'box_truss_calculator');
+
+// Conexão com o banco
+function getDBConnection() {
+    $conn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+    if ($conn->connect_error) {
+        die("Erro de conexão: " . $conn->connect_error);
+    }
+    return $conn;
+}
+?>
+
+
+
+
+save_project.php
+
+
+<?php
+header('Content-Type: application/json');
+require_once 'includes/config.php';
+
+$data = json_decode(file_get_contents('php://input'), true);
+
+if (empty($data['name']) || empty($data['components'])) {
+    echo json_encode(['success' => false, 'message' => 'Dados incompletos.']);
+    exit;
+}
+
+$conn = getDBConnection();
+
+$stmt = $conn->prepare("INSERT INTO projects (name, width, height, length, scale, components) VALUES (?, ?, ?, ?, ?, ?)");
+$stmt->bind_param("ssddis", $data['name'], $data['width'], $data['height'], $data['length'], $data['scale'], $data['components']);
+
+if ($stmt->execute()) {
+    echo json_encode(['success' => true, 'message' => 'Projeto salvo com sucesso.']);
+} else {
+    echo json_encode(['success' => false, 'message' => 'Erro ao salvar projeto: ' . $stmt->error]);
+}
+
+$stmt->close();
+$conn->close();
+?>
+
+
+
+
+load_project.php
+
+
+<?php
+header('Content-Type: application/json');
+require_once 'includes/config.php';
+
+$conn = getDBConnection();
+
+if (isset($_GET['id'])) {
+    // Carrega um projeto específico
+    $id = intval($_GET['id']);
+    $stmt = $conn->prepare("SELECT * FROM projects WHERE id = ?");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $project = $result->fetch_assoc();
+
+    if ($project) {
+        echo json_encode(['success' => true, 'project' => $project]);
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Projeto não encontrado.']);
+    }
+    $stmt->close();
+} else {
+    // Carrega todos os projetos
+    $result = $conn->query("SELECT * FROM projects ORDER BY created_at DESC");
+    $projects = [];
+    while ($row = $result->fetch_assoc()) {
+        $projects[] = $row;
+    }
+    echo json_encode(['success' => true, 'projects' => $projects]);
+}
+
+$conn->close();
+?>
+
+
+
+
+delete_project.php
+
+
+<?php
+header('Content-Type: application/json');
+require_once 'includes/config.php';
+
+if (!isset($_GET['id'])) {
+    echo json_encode(['success' => false, 'message' => 'ID do projeto não fornecido.']);
+    exit;
+}
+
+$id = intval($_GET['id']);
+$conn = getDBConnection();
+
+$stmt = $conn->prepare("DELETE FROM projects WHERE id = ?");
+$stmt->bind_param("i", $id);
+
+if ($stmt->execute()) {
+    echo json_encode(['success' => true, 'message' => 'Projeto excluído com sucesso.']);
+} else {
+    echo json_encode(['success' => false, 'message' => 'Erro ao excluir projeto: ' . $stmt->error]);
+}
+
+$stmt->close();
+$conn->close();
+?>
+
+
+
+
+export_pdf.php (Opcional - Backend)
+Se preferir gerar o PDF no backend (em vez de no frontend), você pode usar o TCPDF ou mpdf:
+
+
+<?php
+require_once 'includes/config.php';
+require_once('tcpdf/tcpdf.php'); // ou mPDF
+
+// Recebe os dados do frontend (via POST)
+$data = json_decode(file_get_contents('php://input'), true);
+
+// Cria um novo PDF
+$pdf = new TCPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
+$pdf->SetCreator('Box Truss Calculator');
+$pdf->SetAuthor('Seu Nome');
+$pdf->SetTitle('Projeto Box Truss');
+
+// Adiciona uma página
+$pdf->AddPage();
+
+// Adiciona o desenho da estrutura (imagem base64)
+if (isset($data['canvasImage'])) {
+    $imageData = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $data['canvasImage']));
+    $pdf->Image('@' . $imageData, 15, 15, 180, 100);
+}
+
+// Adiciona a tabela de quantitativo
+$html = '
+    <h1>Quantitativo de Materiais</h1>
+    <table border="1" cellpadding="5">
+        <tr>
+            <th>Componente</th>
+            <th>Tamanho</th>
+            <th>Quantidade</th>
+            <th>Peso (kg)</th>
+        </tr>
+';
+
+foreach ($data['quantitativo'] as $item) {
+    $html .= '
+        <tr>
+            <td>' . $item['type'] . '</td>
+            <td>' . ($item['length'] ?? '-') . '</td>
+            <td>' . $item['quantity'] . '</td>
+            <td>' . $item['weight'] . '</td>
+        </tr>
+    ';
+}
+
+$html .= '
+        <tr>
+            <td colspan="3"><strong>Total</strong></td>
+            <td><strong>' . $data['totalWeight'] . ' kg</strong></td>
+        </tr>
+    </table>
+';
+
+$pdf->writeHTML($html, true, false, true, false, '');
+
+// Saída do PDF
+$pdf->Output('box_truss_projeto.pdf', 'D'); // 'D' para download
+?>
+
+
+
+
+export_excel.php (Opcional - Backend)
+Para gerar o Excel no backend, use o PhpSpreadsheet:
+
+
+<?php
+require_once 'includes/config.php';
+require 'vendor/autoload.php'; // PhpSpreadsheet
+
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+
+$data = json_decode(file_get_contents('php://input'), true);
+
+// Cria uma nova planilha
+$spreadsheet = new Spreadsheet();
+$sheet = $spreadsheet->getActiveSheet();
+
+// Adiciona cabeçalho
+$sheet->setCellValue('A1', 'Componente');
+$sheet->setCellValue('B1', 'Tamanho');
+$sheet->setCellValue('C1', 'Quantidade');
+$sheet->setCellValue('D1', 'Peso Unitário (kg)');
+$sheet->setCellValue('E1', 'Peso Total (kg)');
+
+// Adiciona dados
+$row = 2;
+foreach ($data['quantitativo'] as $item) {
+    $sheet->setCellValue('A' . $row, $item['type']);
+    $sheet->setCellValue('B' . $row, $item['length'] ?? '-');
+    $sheet->setCellValue('C' . $row, $item['quantity']);
+    $sheet->setCellValue('D' . $row, $item['unitWeight']);
+    $sheet->setCellValue('E' . $row, $item['totalWeight']);
+    $row++;
+}
+
+// Adiciona total
+$sheet->setCellValue('A' . $row, 'Total');
+$sheet->mergeCells('A' . $row . ':D' . $row);
+$sheet->setCellValue('E' . $row, $data['totalWeight']);
+
+// Configura o estilo
+$sheet->getStyle('A1:E1')->getFont()->setBold(true);
+$sheet->getStyle('A' . $row . ':E' . $row)->getFont()->setBold(true);
+
+// Salva o arquivo
+$writer = new Xlsx($spreadsheet);
+header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+header('Content-Disposition: attachment;filename="box_truss_quantitativo.xlsx"');
+header('Cache-Control: max-age=0');
+$writer->save('php://output');
+exit;
+?>
+
+
+
+
+📦 COMO IMPLEMENTAR
+
+Crie a estrutura de pastas conforme descrito.
+Instale as dependências:
+
+Baixe o Fabric.js (link) e coloque em assets/js/.
+Baixe o SheetJS (xlsx.js) (link) e coloque em assets/js/.
+Baixe o jsPDF (link) e coloque em assets/js/.
+Para o backend, instale o PhpSpreadsheet via Composer:
+
+
+
+
+composer require phpoffice/phpspreadsheet
+
+
+
+
+
+Crie o banco de dados:
+
+Execute o SQL para criar a tabela projects no MySQL.
+
+Teste o sistema:
+
+Abra o index.php em um navegador.
+Arraste componentes para o canvas.
+Calcule o quantitativo.
+Salve e carregue projetos.
+Exporte para PDF/Excel.
+
+
+🎯 PRÓXIMOS PASSOS (OPCIONAIS)
+
+Adicione mais componentes (ex: Q50, Q100, diagonais, etc.).
+Implemente visualização 3D com Three.js.
+Adicione autenticação de usuário (login/senha) para salvar projetos por usuário.
+Integre com um sistema de orçamentos (ex: calcule o custo total com base nos preços dos componentes).
+Adicione validações estruturais (ex: verifique se a estrutura está estável com base nas normas de engenharia).
+
+💡 DICAS FINAIS
+
+Para um sistema mais robusto, considere usar um framework PHP FRAMEWORK MVC PURO.
+Para melhor UX, adicione animações (ex: com Animate.css) e tooltips (ex: com Tippy.js).
+Para deploy, use um servidor com PHP 8.0+ e SQLITE (ex: XAMPP, WAMP, ou um VPS com Apache/Nginx).
+
+Pronto! Com esse prompt, você ou um desenvolvedor pode implementar todo o sistema conforme suas necessidades. Se quiser que eu desenvolva uma parte específica (ex: o backend em PHP ou o frontend com Fabric.js), é só me avisar! 
+
+
+
+
+VAMOS REALIZAR O PLANEJAMENTO DE UM SISTEMA DE CALCULOS DE ESTRUTURAS BOXTRUSS Q30 ONDE IREMOS FAZER O CALCULO DE ACORDO COM AS PEÇAS
+QUE VAMOS CADASTRAR E VAMOS CADASTRAR NOSSO ESTOQUE ALEM DAS MEDIDAS E PESO DAS PEÇAS E IMPORTANTE ISSO PORQUE VAMOS SABER QUANTAS PEÇAS
+TEMOS EM ESTOQUE PARA REALIZAR O PROJETO E VAMOS SABER QUANTAS PEÇAS VAO FALTAR ANALISE O DOCS PARA CRIAR O FRAMEWORK EM PHP E BANCO DE DADOS SQLITE ONDE VAMOS 
+CRIAR APIS E USAR NO NOSSO SISTEMA VAMOS VER O DESIGN SYSTEM O FRAMEWORK E A INTELIGENCIA ARTIFICIAL CRIANDO O .AI E OS AGENTES NECESSARIOS
+PARA CRIAR O NOSOS SISTEMA 
+
+
+
+

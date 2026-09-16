@@ -1,0 +1,33 @@
+/* Badges - Moved from styles.css */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 12.5px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  border: 2px solid;
+  letter-spacing: .2px;
+}
+.badge::before {
+  content: '';
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+.badge-sm { font-size: 10px; padding: 3px 8px; }
+.badge-lg { font-size: 14px; padding: 7px 16px; }
+
+.badge.red, .red { color: #fff; background-color: var(--color-neon-red); border-color: var(--color-neon-red); box-shadow: 0 2px 10px var(--color-neon-red-glow); }
+.badge.green, .green { color: #fff; background-color: var(--color-neon-green); border-color: var(--color-neon-green); box-shadow: 0 2px 10px var(--color-neon-green-glow); }
+.badge.cyan, .cyan { color: #fff; background-color: var(--color-neon-cyan); border-color: var(--color-neon-cyan); box-shadow: 0 2px 10px var(--color-neon-cyan-glow); }
+.badge.blue, .blue { color: #fff; background-color: var(--color-neon-blue); border-color: var(--color-neon-blue); box-shadow: 0 2px 10px var(--color-neon-blue-glow); }
+.badge.purple, .purple { color: #fff; background-color: var(--color-neon-purple); border-color: var(--color-neon-purple); box-shadow: 0 2px 10px var(--color-neon-purple-glow); }
+.badge.orange, .orange { color: #fff; background-color: var(--color-neon-orange); border-color: var(--color-neon-orange); box-shadow: 0 2px 10px var(--color-neon-orange-glow); }
+.badge.yellow, .yellow { color: #fff; background-color: var(--color-neon-yellow); border-color: var(--color-neon-yellow); box-shadow: 0 2px 10px var(--color-neon-yellow-glow); }
+
+.dot { width: 7px; height: 7px; border-radius: 50%; background-color: #fff; box-shadow: 0 0 8px #fff; }
+.pulse { animation: pulse 2s ease-in-out infinite; }

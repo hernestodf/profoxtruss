@@ -1,0 +1,42 @@
+/* Calendar - Moved from styles.css */
+.cal-cell {
+  min-height: 120px;
+  padding: 12px;
+  border-right: 1px solid var(--color-bg-border-sub);
+  border-bottom: 1px solid var(--color-bg-border-sub);
+  cursor: pointer;
+  transition: background-color .15s;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cal-cell:hover { background-color: var(--color-bg-surface); }
+.cal-other { opacity: 0.35; cursor: default; }
+.cal-other:hover { background-color: transparent; }
+.cal-day {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text-2);
+  font-family: 'JetBrains Mono', monospace;
+}
+.cal-today {
+  background-color: var(--color-neon-cyan);
+}
+.cal-today .cal-day { color: #fff; }
+.cal-today:hover { background-color: var(--color-neon-cyan); }
+.cal-events {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: auto;
+}
+.cal-event {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 5px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

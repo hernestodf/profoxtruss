@@ -1,0 +1,13 @@
+Options -Indexes
+RewriteEngine On
+
+# RewriteBase /
+
+# Não redireciona arquivos e pastas reais (assets, imagens, etc.)
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Tudo vai para o index.php preservando query string
+RewriteRule ^ index.php [QSA,L]
+
+

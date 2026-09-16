@@ -1,0 +1,30 @@
+/* Tooltips - Moved from styles.css */
+[data-tip] { position: relative; cursor: default; }
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  z-index: 3000;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%) translateY(6px);
+  background-color: var(--color-bg-elevated);
+  color: var(--color-text-1);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-bg-border);
+  box-shadow: 0 4px 16px rgba(15,23,42,0.15);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s, transform .2s;
+  font-family: 'Inter', sans-serif;
+}
+[data-tip]:hover::after { opacity: 1; transform: translateX(-50%) translateY(0); }
+[data-tip="red"]::after { background-color: var(--color-neon-red); border-color: var(--color-neon-red); color: #fff; box-shadow: 0 4px 16px var(--color-neon-red-glow); }
+[data-tip="cyan"]::after { background-color: var(--color-neon-cyan); border-color: var(--color-neon-cyan); color: #fff; box-shadow: 0 4px 16px var(--color-neon-cyan-glow); }
+[data-tip="green"]::after { background-color: var(--color-neon-green); border-color: var(--color-neon-green); color: #fff; box-shadow: 0 4px 16px var(--color-neon-green-glow); }
+[data-tip="yellow"]::after { background-color: var(--color-neon-yellow); border-color: var(--color-neon-yellow); color: #fff; box-shadow: 0 4px 16px var(--color-neon-yellow-glow); }
+[data-tip="purple"]::after { background-color: var(--color-neon-purple); border-color: var(--color-neon-purple); color: #fff; box-shadow: 0 4px 16px var(--color-neon-purple-glow); }

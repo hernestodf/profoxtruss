@@ -1,0 +1,182 @@
+/* app/views/clientes/css/clientes.css
+   Estilos exclusivos do módulo Clientes.
+   Carregado apenas nas views deste módulo via Layout::block('head').
+   Nunca colocar estilos globais aqui — esse arquivo pertence só ao módulo.
+*/
+
+/* ── Toolbar (título + botão novo) ─────────────────────────────────────────── */
+.clientes-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.clientes-toolbar h1 {
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: #111827;
+    margin: 0;
+}
+
+/* ── Tabela ─────────────────────────────────────────────────────────────────── */
+.clientes-table-wrap {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    overflow: hidden;
+}
+
+.clientes-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .9rem;
+}
+
+.clientes-table thead tr {
+    background: #f9fafb;
+    border-bottom: 2px solid #e5e7eb;
+}
+
+.clientes-table th {
+    padding: .7rem 1.2rem;
+    text-align: left;
+    font-weight: 600;
+    color: #374151;
+    font-size: .8rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+
+.clientes-table td {
+    padding: .75rem 1.2rem;
+    color: #1f2937;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.clientes-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.clientes-table tbody tr:hover {
+    background: #f9fafb;
+}
+
+.clientes-table .td-acoes {
+    display: flex;
+    gap: .5rem;
+}
+
+/* ── Formulário ─────────────────────────────────────────────────────────────── */
+.clientes-form-card {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    padding: 2rem;
+    max-width: 520px;
+}
+
+.form-group {
+    margin-bottom: 1.25rem;
+}
+
+.form-group label {
+    display: block;
+    font-size: .85rem;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: .4rem;
+}
+
+.form-group input {
+    width: 100%;
+    padding: .55rem .8rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: .95rem;
+    color: #111827;
+    transition: border-color .15s, box-shadow .15s;
+    outline: none;
+}
+
+.form-group input:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37,99,235,.15);
+}
+
+.form-group input.campo-erro {
+    border-color: #dc2626;
+}
+
+.form-group input.campo-erro:focus {
+    box-shadow: 0 0 0 3px rgba(220,38,38,.15);
+}
+
+.form-erro {
+    display: block;
+    margin-top: .3rem;
+    font-size: .8rem;
+    color: #dc2626;
+}
+
+.form-acoes {
+    display: flex;
+    gap: .75rem;
+    margin-top: 1.75rem;
+    flex-wrap: wrap;
+}
+
+/* ── Botões ─────────────────────────────────────────────────────────────────── */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .5rem 1.1rem;
+    border-radius: 6px;
+    font-size: .875rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    text-decoration: none;
+    transition: opacity .15s, background .15s;
+    white-space: nowrap;
+}
+
+.btn:hover { opacity: .88; }
+
+.btn-primary   { background: #2563eb; color: #fff; }
+.btn-secondary { background: #e5e7eb; color: #374151; }
+.btn-danger    { background: #dc2626; color: #fff; }
+.btn-sm        { padding: .3rem .7rem; font-size: .8rem; }
+
+/* ── Toast de feedback ──────────────────────────────────────────────────────── */
+.toast {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    background: #1f2937;
+    color: #fff;
+    padding: .75rem 1.25rem;
+    border-radius: 8px;
+    font-size: .875rem;
+    box-shadow: 0 4px 16px rgba(0,0,0,.18);
+    animation: slideUp .25s ease;
+    z-index: 1000;
+}
+
+@keyframes slideUp {
+    from { transform: translateY(12px); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* ── Vazio ──────────────────────────────────────────────────────────────────── */
+.clientes-vazio {
+    padding: 3rem;
+    text-align: center;
+    color: #9ca3af;
+    font-size: .95rem;
+}
+
+

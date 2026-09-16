@@ -1,0 +1,36 @@
+/* Toggle Switches - Moved from styles.css */
+.tog { position: relative; flex-shrink: 0; }
+.tog-s { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
+
+.tog-track {
+  width: 46px; height: 27px;
+  border-radius: 14px;
+  background-color: var(--color-bg-surface);
+  border: 1.5px solid var(--color-bg-border);
+  cursor: pointer;
+  transition: all .2s;
+  display: block;
+}
+.tog-s .tog-track { width: 40px; height: 22px; border-radius: 11px; }
+
+.tog-thumb {
+  position: absolute;
+  top: 4px; left: 4px;
+  width: 17px; height: 17px;
+  border-radius: 50%;
+  background-color: var(--color-text-4);
+  transition: transform .22s cubic-bezier(.34,1.56,.64,1), background .2s;
+  pointer-events: none;
+}
+.tog-s .tog-thumb { top: 3px; left: 3px; width: 14px; height: 14px; }
+
+.tog input, .tog-s input { display: none; }
+
+.tog input:checked ~ .tog-track { background-color: var(--color-neon-cyan); border-color: var(--color-neon-cyan); }
+.tog input:checked ~ .tog-thumb { transform: translateX(19px); background-color: #fff; box-shadow: 0 2px 12px var(--color-neon-cyan-glow); }
+.tog-s input:checked ~ .tog-track { background-color: var(--color-neon-cyan); border-color: var(--color-neon-cyan); }
+.tog-s input:checked ~ .tog-thumb { transform: translateX(18px); background-color: #fff; box-shadow: 0 2px 10px var(--color-neon-cyan-glow); }
+.tog.red input:checked ~ .tog-track { background-color: var(--color-neon-red); border-color: var(--color-neon-red); }
+.tog.red input:checked ~ .tog-thumb { transform: translateX(19px); background-color: #fff; box-shadow: 0 2px 10px var(--color-neon-red-glow); }
+.tog.cyan input:checked ~ .tog-track { background-color: var(--color-neon-cyan); border-color: var(--color-neon-cyan); }
+.tog.cyan input:checked ~ .tog-thumb { transform: translateX(19px); background-color: #fff; box-shadow: 0 2px 10px var(--color-neon-cyan-glow); }

@@ -1,0 +1,30 @@
+/* Form Inputs - Moved from styles.css */
+.fi {
+  width: 100%;
+  background-color: var(--color-bg-surface);
+  border: 1.5px solid var(--color-bg-border-sub);
+  color: var(--color-text-1);
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  outline: none;
+  transition: border-color .2s, box-shadow .2s;
+}
+.fi:focus {
+  border-color: var(--color-neon-cyan);
+  box-shadow: 0 0 0 3px var(--color-neon-cyan-glow);
+}
+.fi::placeholder { color: var(--color-text-4); }
+
+.fl {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-3);
+  text-transform: uppercase;
+  letter-spacing: .7px;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.fg { margin-bottom: 16px; }

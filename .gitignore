@@ -1,0 +1,22 @@
+.env
+logs/*.log
+cookies.txt
+
+# Node / Playwright
+**/node_modules/
+playwright-report/
+test-results/
+tests/reports/
+
+# SQLite runtime DB — recriado localmente via database/migration.sql + seed.sql,
+# e do zero em CI (ver .github/workflows/playwright.yml). Nunca versionar dados reais.
+database/*.sqlite
+database/*.sqlite-journal
+
+# Config pessoal do Claude Code (settings.json compartilhado continua versionado)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# Repositório git próprio e independente (não é submódulo deste projeto) —
+# cópia de referência estática do design system antigo.
+DOCS/design_system4.0/

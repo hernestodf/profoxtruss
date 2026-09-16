@@ -1,0 +1,14 @@
+/* Popover Items - Moved from styles.css */
+.si-item-pop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-2);
+  cursor: pointer;
+  transition: all .15s;
+}
+.si-item-pop:hover { background-color: var(--color-bg-surface); color: var(--color-text-1); }

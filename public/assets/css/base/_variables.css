@@ -1,0 +1,43 @@
+/* Theme Variables - Moved from styles.css */
+:root {
+  --color-bg-darkest: #EDF1F7;
+  --color-bg-dark: #E0E8F2;
+  --color-bg-surface: #D0DCF0;
+  --color-bg-card: #FFFFFF;
+  --color-bg-elevated: #FFFFFF;
+  --color-bg-hover: #BFD0E8;
+  --color-bg-border: #9FB4CE;
+  --color-bg-border-sub: #C4D4E6;
+  
+  --color-text-1: #0D1829;
+  --color-text-2: #1E2E45;
+  --color-text-3: #4A6080;
+  --color-text-4: #6B82A0;
+  
+  --color-neon-red: #D62B2B;
+  --color-neon-orange: #D95B10;
+  --color-neon-yellow: #C07C00;
+  --color-neon-green: #1F7A45;
+  --color-neon-cyan: #0B6E8C;
+  --color-neon-blue: #1A44A0;
+  --color-neon-purple: #5A1A9A;
+  --color-neon-amber: #d97706;
+
+  --color-neon-red-glow: rgba(214,43,43,0.28);
+  --color-neon-orange-glow: rgba(217,91,16,0.28);
+  --color-neon-yellow-glow: rgba(192,124,0,0.28);
+  --color-neon-green-glow: rgba(31,122,69,0.28);
+  --color-neon-cyan-glow: rgba(11,110,140,0.28);
+  --color-neon-blue-glow: rgba(26,68,160,0.28);
+  --color-neon-purple-glow: rgba(90,26,154,0.28);
+  --color-neon-amber-glow: rgba(217,119,6,0.28);
+
+  --shadow-neon-cyan: 0 4px 15px rgba(11, 110, 140, 0.28);
+  --shadow-neon-red: 0 4px 15px rgba(214, 43, 43, 0.28);
+  --shadow-neon-green: 0 4px 15px rgba(31, 122, 69, 0.28);
+  --shadow-neon-yellow: 0 4px 15px rgba(192, 124, 0, 0.28);
+  --shadow-neon-blue: 0 4px 15px rgba(26, 68, 160, 0.28);
+  --shadow-neon-purple: 0 4px 15px rgba(90, 26, 154, 0.28);
+  --shadow-neon-orange: 0 4px 15px rgba(217, 91, 16, 0.28);
+  --shadow-neon-amber: 0 4px 15px rgba(217, 119, 6, 0.28);
+}

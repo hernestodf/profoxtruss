@@ -1,0 +1,8 @@
+/* Base Styles - Moved from styles.css */
+html { scroll-behavior: smooth; }
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--color-bg-darkest);
+  color: var(--color-text-1);
+  min-height: 100vh;
+}

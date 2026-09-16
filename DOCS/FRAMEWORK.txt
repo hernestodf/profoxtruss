@@ -1,0 +1,4175 @@
+================================================================================
+PROJETO PHP "RAIZ MODERNO" — CÓDIGO COMPLETO
+================================================================================
+
+PARA RODAR:
+  1. cp .env.example .env
+  2. Edite o .env com suas credenciais de banco
+  3. mysql -u root -p projeto_db < database/migration.sql
+  4. mysql -u root -p projeto_db < database/seed.sql
+  5. php -S localhost:8000 -t public/
+
+CREDENCIAIS INICIAIS:
+  E-mail : admin@exemplo.com
+  Senha  : admin123
+
+MÓDULOS:
+  /clientes  — CRUD nome + CPF com máscara
+  /pedidos   — CRUD com itens, autocomplete, cálculo em tempo real
+
+ESTRUTURA JS:
+  public/assets/js/utils/api.js           — fetch wrapper (compartilhado)
+  public/assets/js/utils/autocomplete.js  — autocomplete genérico (compartilhado)
+  public/assets/js/utils/state.js         — gerenciador de estado (compartilhado)
+  public/assets/pedidos/pedidos.js        — lógica do módulo pedidos
+  public/assets/clientes/clientes.js      — lógica do módulo clientes
+
+================================================================================
+ESTRUTURA DE ARQUIVOS
+================================================================================
+.env.example
+.gitignore
+app/controllers/AdminController.php
+app/controllers/ApiController.php
+app/controllers/AuthController.php
+app/controllers/BaseController.php
+app/controllers/ClienteController.php
+app/controllers/DashController.php
+app/controllers/HomeController.php
+app/controllers/PedidoController.php
+app/helpers.php
+app/middlewares/Auth.php
+app/middlewares/Rbac.php
+app/repositories/ClienteRepository.php
+app/repositories/PedidoRepository.php
+app/repositories/PermissionRepository.php
+app/repositories/ProdutoRepository.php
+app/repositories/UserRepository.php
+app/services/RbacService.php
+app/utils/DateUtil.php
+app/utils/Env.php
+app/utils/ErrorHandler.php
+app/utils/Layout.php
+app/utils/Router.php
+app/views/admin/index.php
+app/views/admin/users.php
+app/views/auth/login.php
+app/views/clientes/css/clientes.css
+app/views/clientes/form.php
+app/views/clientes/index.php
+app/views/clientes/js/clientes.js
+app/views/components/alert.php
+app/views/components/table.php
+app/views/errors/403.php
+app/views/errors/404.php
+app/views/errors/500.php
+app/views/layouts/main.php
+app/views/pedidos/css/pedidos.css
+app/views/pedidos/form.php
+app/views/pedidos/index.php
+app/views/pedidos/js/pedidos.js
+config.php
+database/migration.sql
+database/migrations.sql
+database/seed.sql
+logs/.htaccess
+public/.htaccess
+public/assets/clientes/clientes.css
+public/assets/clientes/clientes.js
+public/assets/js/utils/api.js
+public/assets/js/utils/autocomplete.js
+public/assets/js/utils/state.js
+public/assets/pedidos/pedidos.css
+public/assets/pedidos/pedidos.js
+public/index.php
+routes.php
+routes/admin.php
+routes/app.php
+routes/auth.php
+routes/clientes.php
+routes/pedidos.php
+
+
+================================================================================
+ARQUIVO: .env.example
+================================================================================
+# BASE_URL é opcional — se omitido, o sistema detecta automaticamente.
+# Defina apenas em produção para garantir o domínio certo.
+# BASE_URL=https://meusite.com/subpasta
+
+APP_ENV=development
+APP_DEBUG=true
+
+DB_HOST=localhost
+DB_NAME=projeto_db
+DB_USER=root
+DB_PASS=
+
+SESSION_LIFETIME=7200
+
+
+================================================================================
+ARQUIVO: .gitignore
+================================================================================
+.env
+logs/*.log
+
+
+================================================================================
+ARQUIVO: config.php
+================================================================================
+<?php
+/**
+ * CONFIG — carregado antes de tudo pelo index.php.
+ *
+ * Responsabilidades:
+ *   - Carrega o .env (Env::load) — sem ele, usa variáveis de ambiente do servidor
+ *   - Inicia a sessão com configurações seguras
+ *   - Configura nível de log e exibição de erros por ambiente
+ *   - Define constantes globais (APP_ENV, APP_DEBUG)
+ *   - Expõe getPDO() — conexão lazy, singleton, reutilizada no request inteiro
+ *
+ * IMPORTANTE: BASE_PATH é definido no index.php (depende de $_SERVER),
+ * não aqui. BASE_URL hardcoded não existe mais — use url() ou redirect().
+ */
+
+// ─── Env ──────────────────────────────────────────────────────────────────────
+// Carregado manualmente pois o autoload ainda não foi registrado.
+// Env::load() é idempotente — chamadas repetidas são ignoradas.
+require_once __DIR__ . '/app/utils/Env.php';
+Env::load(__DIR__ . '/.env');
+
+// ─── Sessão ───────────────────────────────────────────────────────────────────
+ini_set('session.cookie_httponly', 1);   // JS não acessa o cookie de sessão
+ini_set('session.use_strict_mode', 1);   // rejeita session IDs externos
+ini_set('session.gc_maxlifetime', (int) Env::get('SESSION_LIFETIME', '7200'));
+session_start();
+
+// ─── Logs e erros ─────────────────────────────────────────────────────────────
+ini_set('log_errors', 1);
+ini_set('error_log', __DIR__ . '/logs/app.log');
+
+// Em desenvolvimento: mostra erros na tela. Em produção: só loga, nunca exibe.
+$debug = Env::bool('APP_DEBUG', false);
+ini_set('display_errors', $debug ? '1' : '0');
+error_reporting($debug ? E_ALL : E_ERROR | E_WARNING);
+
+// ─── Constantes ───────────────────────────────────────────────────────────────
+define('APP_ENV',   Env::get('APP_ENV', 'production'));
+define('APP_DEBUG', $debug);
+// LOG_TRACE: inclui stack trace completo no log de exceções (só em dev)
+define('LOG_TRACE', APP_ENV === 'development');
+
+// ─── Banco de Dados ───────────────────────────────────────────────────────────
+/**
+ * Retorna a conexão PDO.
+ * Singleton por request — a conexão é criada na primeira chamada e reutilizada.
+ * Lança PDOException se as credenciais forem inválidas (capturado pelo ErrorHandler).
+ *
+ * Uso: $pdo = getPDO();
+ * Nos Repositories: $this->db = getPDO();
+ */
+function getPDO(): PDO
+{
+    static $pdo = null;
+
+    if ($pdo === null) {
+        $pdo = new PDO(
+            sprintf('mysql:host=%s;dbname=%s;charset=utf8mb4',
+                Env::get('DB_HOST', 'localhost'),
+                Env::get('DB_NAME', 'projeto_db')
+            ),
+            Env::get('DB_USER', 'root'),
+            Env::get('DB_PASS', ''),
+            [
+                PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,   // lança exceção em erro SQL
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,         // arrays associativos por padrão
+                PDO::ATTR_EMULATE_PREPARES   => false,                    // prepared statements reais
+            ]
+        );
+    }
+
+    return $pdo;
+}
+
+
+================================================================================
+ARQUIVO: public/index.php
+================================================================================
+<?php
+
+declare(strict_types=1);
+
+define('ROOT', dirname(__DIR__));
+
+require ROOT . '/config.php';
+require ROOT . '/app/helpers.php';
+
+// ─── Autoload ─────────────────────────────────────────────────────────────────
+spl_autoload_register(function (string $class): void {
+    foreach ([
+        ROOT . '/app/controllers/',
+        ROOT . '/app/models/',
+        ROOT . '/app/repositories/',
+        ROOT . '/app/services/',
+        ROOT . '/app/middlewares/',
+        ROOT . '/app/utils/',
+    ] as $dir) {
+        $file = $dir . $class . '.php';
+        if (file_exists($file)) { require_once $file; return; }
+    }
+});
+
+// ─── Tratamento global de erros ───────────────────────────────────────────────
+ErrorHandler::register();
+
+// ─── Registra todas as rotas ──────────────────────────────────────────────────
+require ROOT . '/routes.php';
+
+// ─── Resolve URI removendo o BASE_PATH do início ──────────────────────────────
+//
+// Exemplo em subpasta:
+//   REQUEST_URI = /meuprojeto/public/admin/users
+//   BASE_PATH   = /meuprojeto/public
+//   URI final   = /admin/users   ← o Router só vê isso
+//
+$requestUri = $_SERVER['REQUEST_URI'];
+
+if (BASE_PATH !== '' && str_starts_with($requestUri, BASE_PATH)) {
+    $requestUri = substr($requestUri, strlen(BASE_PATH));
+}
+
+$requestUri = $requestUri ?: '/';
+
+// ─── Match ────────────────────────────────────────────────────────────────────
+$match = Router::match($_SERVER['REQUEST_METHOD'], $requestUri);
+
+if (!$match) {
+    ErrorHandler::notFound();
+}
+
+[$controllerClass, $method, $middlewares, $params] = $match;
+
+$GLOBALS['_ROUTE_PARAMS'] = $params;
+
+// ─── Pipeline de middlewares ──────────────────────────────────────────────────
+foreach ($middlewares as $middleware) {
+    if (str_contains($middleware, ':')) {
+        [$mClass, $param] = explode(':', $middleware, 2);
+        $mClass::handle($param);
+    } else {
+        $middleware::handle();
+    }
+}
+
+// ─── Executa o controller ─────────────────────────────────────────────────────
+if (!class_exists($controllerClass) || !method_exists($controllerClass, $method)) {
+    ErrorHandler::serverError("Controller não encontrado: {$controllerClass}::{$method}");
+}
+
+(new $controllerClass())->$method();
+
+
+================================================================================
+ARQUIVO: public/.htaccess
+================================================================================
+Options -Indexes
+RewriteEngine On
+
+# Usa o diretório do .htaccess como base — funciona em qualquer subpasta
+RewriteBase /
+
+# Não redireciona arquivos e pastas reais (assets, imagens, etc.)
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Tudo vai para o index.php preservando query string
+RewriteRule ^ index.php [QSA,L]
+
+
+================================================================================
+ARQUIVO: logs/.htaccess
+================================================================================
+# Bloqueia acesso direto a todos os logs via browser
+Require all denied
+
+# Apache 2.2 fallback
+<IfModule !mod_authz_core.c>
+    Order deny,allow
+    Deny from all
+</IfModule>
+
+
+================================================================================
+ARQUIVO: routes.php
+================================================================================
+<?php
+
+/**
+ * Ponto central de rotas.
+ * Cada arquivo registra suas rotas diretamente no Router estático.
+ * Para novo módulo: crie routes/modulo.php e inclua aqui.
+ */
+require __DIR__ . '/routes/app.php';
+require __DIR__ . '/routes/auth.php';
+require __DIR__ . '/routes/admin.php';
+require __DIR__ . '/routes/clientes.php';
+require __DIR__ . '/routes/pedidos.php';
+
+
+================================================================================
+ARQUIVO: routes/app.php
+================================================================================
+<?php
+
+Router::get('/', ['HomeController', 'index']);
+Router::get('/dashboard', ['DashController', 'index'], ['Auth']);
+
+
+================================================================================
+ARQUIVO: routes/auth.php
+================================================================================
+<?php
+
+Router::get('/login',    ['AuthController', 'login']);
+Router::post('/login',   ['AuthController', 'doLogin']);
+Router::get('/logout',   ['AuthController', 'logout']);
+
+
+================================================================================
+ARQUIVO: routes/admin.php
+================================================================================
+<?php
+
+Router::group('/admin', ['Auth'], function () {
+
+    Router::get('',         ['AdminController', 'index']);
+    Router::get('/reports', ['AdminController', 'reports']);
+
+    Router::group('/users', ['Rbac:user.view'], function () {
+        Router::get('',            ['AdminController', 'users']);
+        Router::get('/{id}',       ['AdminController', 'showUser']);
+        Router::get('/{id}/edit',  ['AdminController', 'editUser']);
+        Router::post('/{id}',      ['AdminController', 'updateUser']);
+        Router::delete('/{id}',    ['AdminController', 'deleteUser']);
+    });
+
+    // Gerenciamento de permissões via painel
+    Router::group('/permissions', ['Rbac:admin.view'], function () {
+        Router::get('',        ['AdminController', 'permissions']);
+        Router::post('/grant', ['AdminController', 'grantPermission']);
+        Router::post('/revoke',['AdminController', 'revokePermission']);
+    });
+
+});
+
+
+================================================================================
+ARQUIVO: routes/clientes.php
+================================================================================
+<?php
+
+Router::group('/clientes', ['Auth'], function () {
+    Router::get('',              ['ClienteController', 'index']);
+    Router::get('/novo',         ['ClienteController', 'novo']);
+    Router::post('',             ['ClienteController', 'store']);
+    Router::get('/{id}/editar',  ['ClienteController', 'editar']);
+    Router::post('/{id}',        ['ClienteController', 'update']);
+    Router::post('/{id}/deletar',['ClienteController', 'delete']);
+});
+
+
+================================================================================
+ARQUIVO: routes/pedidos.php
+================================================================================
+<?php
+
+Router::group('/pedidos', ['Auth'], function () {
+    Router::get('',               ['PedidoController', 'index']);
+    Router::get('/novo',          ['PedidoController', 'novo']);
+    Router::post('',              ['PedidoController', 'store']);
+    Router::get('/{id}/editar',   ['PedidoController', 'editar']);
+    Router::post('/{id}',         ['PedidoController', 'update']);
+    Router::post('/{id}/deletar', ['PedidoController', 'delete']);
+});
+
+// Endpoints JSON — Auth obrigatório, sem RBAC extra (já está no controller)
+Router::group('/api', ['Auth'], function () {
+    Router::get('/clientes/busca',  ['ApiController', 'buscarClientes']);
+    Router::get('/produtos/busca',  ['ApiController', 'buscarProdutos']);
+    Router::get('/produtos/{id}',   ['ApiController', 'getProduto']);
+});
+
+
+================================================================================
+ARQUIVO: app/helpers.php
+================================================================================
+<?php
+
+// ── Navegação ──────────────────────────────────────────────────────────────────
+
+function redirect(string $url): never
+{
+    header('Location: ' . url($url));
+    exit;
+}
+
+function url(string $path = ''): string
+{
+    return BASE_PATH . '/' . ltrim($path, '/');
+}
+
+// ── Debug ──────────────────────────────────────────────────────────────────────
+
+function dd(mixed ...$vars): never
+{
+    echo '<pre style="background:#1e1e1e;color:#d4d4d4;padding:16px;border-radius:8px;font-size:13px;white-space:pre-wrap">';
+    foreach ($vars as $var) {
+        var_dump($var);
+        echo PHP_EOL;
+    }
+    echo '</pre>';
+    exit;
+}
+
+// ── Views ──────────────────────────────────────────────────────────────────────
+
+function view(string $template, array $data = []): void
+{
+    $path = ROOT . '/app/views/' . $template . '.php';
+
+    if (!file_exists($path)) {
+        appLog('error', "View não encontrada: {$template}", __FILE__, __LINE__);
+        http_response_code(500);
+        die('Erro interno: view não encontrada.');
+    }
+
+    Layout::render($path, $data);
+}
+
+function component(string $name, array $data = []): void
+{
+    $path = ROOT . '/app/views/components/' . $name . '.php';
+    if (!file_exists($path)) {
+        appLog('warning', "Componente não encontrado: {$name}", __FILE__, __LINE__);
+        return;
+    }
+    extract($data, EXTR_SKIP);
+    require $path;
+}
+
+// ── Formulários ────────────────────────────────────────────────────────────────
+
+function post(string $key, string $default = ''): string
+{
+    return htmlspecialchars(trim($_POST[$key] ?? $default), ENT_QUOTES, 'UTF-8');
+}
+
+function get(string $key, string $default = ''): string
+{
+    return htmlspecialchars(trim($_GET[$key] ?? $default), ENT_QUOTES, 'UTF-8');
+}
+
+function old(string $key, string $default = ''): string
+{
+    return htmlspecialchars(trim($_POST[$key] ?? $default), ENT_QUOTES, 'UTF-8');
+}
+
+// ── Sessão ─────────────────────────────────────────────────────────────────────
+
+function isLoggedIn(): bool
+{
+    return isset($_SESSION['user_id']);
+}
+
+function userRole(): string
+{
+    return $_SESSION['user_role'] ?? '';
+}
+
+function csrfToken(): string
+{
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+function csrfValidate(): void
+{
+    $token = $_POST['csrf_token'] ?? '';
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', $token)) {
+        appLog('warning', 'CSRF token inválido', '', 0, [
+            'ip'  => $_SERVER['REMOTE_ADDR'] ?? '?',
+            'uri' => $_SERVER['REQUEST_URI'] ?? '?',
+        ]);
+        http_response_code(403);
+        die('Requisição inválida.');
+    }
+}
+
+// ── Log ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Grava uma linha estruturada em logs/app.log.
+ *
+ * Formato:
+ *   [2024-01-15 14:32:01] [ERROR] Mensagem | file.php:42 | user:7 ip:192.168.0.1
+ *   [2024-01-15 14:32:01] [ERROR] Mensagem | file.php:42 | cpf=111.444.777-35
+ *
+ * Níveis: debug | info | warning | error
+ *
+ * Uso:
+ *   appLog('info',    'Cliente criado', __FILE__, __LINE__, ['id' => 5]);
+ *   appLog('warning', 'Login falhou',   __FILE__, __LINE__, ['email' => $email]);
+ *   appLog('error',   'Falha no banco', __FILE__, __LINE__);
+ */
+function appLog(
+    string $level,
+    string $message,
+    string $file    = '',
+    int    $line    = 0,
+    array  $context = []
+): void {
+    // Contexto automático de sessão
+    if (isset($_SESSION['user_id'])) {
+        $context = array_merge(['user' => $_SESSION['user_id']], $context);
+    }
+
+    $context['ip'] = $_SERVER['REMOTE_ADDR'] ?? 'cli';
+
+    // Monta string de contexto: key:value key:value
+    $ctx = implode(' ', array_map(
+        fn($k, $v) => "{$k}:{$v}",
+        array_keys($context),
+        array_values($context)
+    ));
+
+    // Localização: só o nome do arquivo, sem path absoluto
+    $loc = $file ? basename($file) . ":{$line}" : '';
+
+    $parts = array_filter([
+        sprintf('[%s] [%s] %s', date('Y-m-d H:i:s'), strtoupper($level), $message),
+        $loc,
+        $ctx,
+    ]);
+
+    error_log(implode(' | ', $parts));
+}
+
+
+================================================================================
+ARQUIVO: app/utils/Env.php
+================================================================================
+<?php
+/**
+ * ENV — leitor de arquivo .env sem dependência externa.
+ *
+ * Por que usar .env?
+ *   Credenciais de banco, chaves de API e configurações por ambiente
+ *   não devem ficar hardcoded no código nem versionadas no git.
+ *   O .env fica na raiz do projeto, no .gitignore, e cada ambiente
+ *   (dev, staging, produção) tem o seu próprio.
+ *
+ * Formato suportado:
+ *   DB_HOST=localhost
+ *   DB_PASS="minha senha com espaço"
+ *   APP_DEBUG=true
+ *   # linhas que começam com # são comentários
+ *
+ * Comportamento:
+ *   - Se o .env não existir, não é erro — usa as variáveis de ambiente do servidor
+ *   - Não sobrescreve variáveis já definidas no ambiente (Docker, CI, hospedagem)
+ *   - Idempotente: chamadas repetidas são ignoradas (static $loaded)
+ *
+ * Uso:
+ *   Env::load(__DIR__ . '/.env');
+ *   $host = Env::get('DB_HOST', 'localhost');
+ *   $debug = Env::bool('APP_DEBUG', false);
+ */
+class Env
+{
+    private static bool $loaded = false;
+
+    /** Lê o arquivo .env e popula $_ENV / putenv. */
+    public static function load(string $path): void
+    {
+        if (self::$loaded) return;
+
+        if (!file_exists($path)) return; // sem .env não é erro
+
+        foreach (file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+            $line = trim($line);
+            if (str_starts_with($line, '#') || !str_contains($line, '=')) continue;
+
+            [$key, $value] = explode('=', $line, 2);
+            $key   = trim($key);
+            $value = trim($value);
+
+            // Remove aspas simples ou duplas opcionais
+            if (preg_match('/^(["\']).*\1$/', $value)) {
+                $value = substr($value, 1, -1);
+            }
+
+            // Não sobrescreve variáveis já definidas no ambiente do servidor
+            if (!array_key_exists($key, $_ENV) && getenv($key) === false) {
+                $_ENV[$key] = $value;
+                putenv("{$key}={$value}");
+            }
+        }
+
+        self::$loaded = true;
+    }
+
+    /** Lê uma variável com valor padrão. */
+    public static function get(string $key, string $default = ''): string
+    {
+        return $_ENV[$key] ?? (getenv($key) ?: $default);
+    }
+
+    /**
+     * Lê uma variável e converte para bool.
+     * Considera true: 'true', '1', 'yes', 'on' (case-insensitive).
+     */
+    public static function bool(string $key, bool $default = false): bool
+    {
+        $val = strtolower(self::get($key));
+        if ($val === '') return $default;
+        return in_array($val, ['true', '1', 'yes', 'on'], true);
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/utils/Router.php
+================================================================================
+<?php
+/**
+ * ROUTER — registro e resolução de rotas HTTP.
+ *
+ * Design: estático, sem instância. As rotas são registradas durante o boot
+ * (require routes.php) e ficam em memória até o fim do request.
+ *
+ * Funcionalidades:
+ *   - Verbos HTTP explícitos: get, post, put, delete, any
+ *   - Parâmetros dinâmicos:   /user/{id}, /post/{slug}/edit
+ *   - Grupos com prefixo e middlewares herdados (aninhamento ilimitado)
+ *
+ * Como usar nos arquivos de rota (routes/*.php):
+ *
+ *   Router::get('/users', ['UserController', 'index']);
+ *   Router::post('/users', ['UserController', 'store']);
+ *
+ *   Router::group('/admin', ['Auth'], function () {
+ *       Router::get('', ['AdminController', 'index']);
+ *
+ *       Router::group('/users', ['Rbac:user.view'], function () {
+ *           Router::get('',           ['AdminController', 'users']);
+ *           Router::get('/{id}',      ['AdminController', 'showUser']);
+ *           Router::post('/{id}',     ['AdminController', 'updateUser']);
+ *           Router::delete('/{id}',   ['AdminController', 'deleteUser']);
+ *       });
+ *   });
+ *
+ * Como usar no index.php:
+ *   $match = Router::match('GET', '/admin/users/42');
+ *   // retorna: ['AdminController', 'showUser', ['Auth','Rbac:user.view'], ['id'=>'42']]
+ *   // ou null se nenhuma rota casar
+ */
+class Router
+{
+    // Lista acumulada de rotas registradas neste request
+    private static array $routes = [];
+
+    // Pilha de contextos de grupo ativos (permite grupos aninhados)
+    private static array $groupStack = [];
+
+    // ── Métodos de registro ───────────────────────────────────────────────────
+
+    public static function get(string $uri, array $handler, array $middlewares = []): void
+    {
+        self::add('GET', $uri, $handler, $middlewares);
+    }
+
+    public static function post(string $uri, array $handler, array $middlewares = []): void
+    {
+        self::add('POST', $uri, $handler, $middlewares);
+    }
+
+    public static function put(string $uri, array $handler, array $middlewares = []): void
+    {
+        self::add('PUT', $uri, $handler, $middlewares);
+    }
+
+    public static function delete(string $uri, array $handler, array $middlewares = []): void
+    {
+        self::add('DELETE', $uri, $handler, $middlewares);
+    }
+
+    /** Aceita qualquer verbo HTTP — útil para rotas de debug ou webhooks */
+    public static function any(string $uri, array $handler, array $middlewares = []): void
+    {
+        self::add('ANY', $uri, $handler, $middlewares);
+    }
+
+    // ── Grupos ────────────────────────────────────────────────────────────────
+
+    /**
+     * Agrupa rotas com prefixo de URI e middlewares compartilhados.
+     * Grupos podem ser aninhados — o prefixo e os middlewares se acumulam.
+     *
+     * Router::group('/admin', ['Auth'], function () {
+     *     Router::group('/users', ['Rbac:user.view'], function () {
+     *         Router::get('/{id}', ['AdminController', 'show']);
+     *         // URI final: /admin/users/{id}
+     *         // Middlewares: ['Auth', 'Rbac:user.view']
+     *     });
+     * });
+     */
+    public static function group(string $prefix, array $middlewares, callable $callback): void
+    {
+        self::$groupStack[] = [
+            'prefix'      => self::currentPrefix() . $prefix,
+            'middlewares' => array_merge(self::currentMiddlewares(), $middlewares),
+        ];
+
+        $callback();
+
+        array_pop(self::$groupStack);
+    }
+
+    // ── Resolução ─────────────────────────────────────────────────────────────
+
+    /**
+     * Tenta casar o método HTTP e o caminho com uma rota registrada.
+     *
+     * Retorna array com 4 posições ou null se não encontrar:
+     *   [0] string   — nome da classe do controller
+     *   [1] string   — nome do método
+     *   [2] string[] — lista de middlewares a executar
+     *   [3] array    — parâmetros dinâmicos extraídos da URI (['id' => '42'])
+     */
+    public static function match(string $httpMethod, string $requestPath): ?array
+    {
+        $path = rtrim($requestPath, '/') ?: '/';
+
+        foreach (self::$routes as $route) {
+            // Verifica verbo HTTP (ANY casa com qualquer um)
+            if ($route['method'] !== 'ANY' && $route['method'] !== strtoupper($httpMethod)) {
+                continue;
+            }
+
+            // Match exato — sem regex, mais rápido
+            if ($route['uri'] === $path) {
+                return [...$route['handler'], $route['middlewares'], []];
+            }
+
+            // Match com parâmetros dinâmicos (ex: /user/{id})
+            if (!str_contains($route['uri'], '{')) {
+                continue;
+            }
+
+            $regex = self::toRegex($route['uri'], $paramNames);
+
+            if (preg_match($regex, $path, $matches)) {
+                array_shift($matches); // remove o match completo, fica só os grupos
+                return [...$route['handler'], $route['middlewares'], array_combine($paramNames, $matches)];
+            }
+        }
+
+        return null;
+    }
+
+    /** Retorna todas as rotas registradas — útil para debug ou documentação. */
+    public static function all(): array
+    {
+        return self::$routes;
+    }
+
+    // ── Internos ──────────────────────────────────────────────────────────────
+
+    private static function add(string $method, string $uri, array $handler, array $middlewares): void
+    {
+        $fullUri = self::currentPrefix() . $uri;
+        $fullUri = ($fullUri === '' || $fullUri === '/') ? '/' : $fullUri;
+
+        self::$routes[] = [
+            'method'      => $method,
+            'uri'         => $fullUri,
+            'handler'     => $handler,                                          // [ControllerClass, method]
+            'middlewares' => array_merge(self::currentMiddlewares(), $middlewares),
+        ];
+    }
+
+    private static function currentPrefix(): string
+    {
+        return end(self::$groupStack)['prefix'] ?? '';
+    }
+
+    private static function currentMiddlewares(): array
+    {
+        return end(self::$groupStack)['middlewares'] ?? [];
+    }
+
+    /**
+     * Converte '/user/{id}/edit' em regex '#^/user/([^/]+)/edit$#'
+     * e preenche $paramNames com ['id'].
+     */
+    private static function toRegex(string $pattern, ?array &$paramNames): string
+    {
+        $paramNames = [];
+
+        $regex = preg_replace_callback('/\{(\w+)\}/', function ($m) use (&$paramNames) {
+            $paramNames[] = $m[1];
+            return '([^/]+)';
+        }, $pattern);
+
+        return '#^' . $regex . '$#';
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/utils/Layout.php
+================================================================================
+<?php
+/**
+ * LAYOUT — motor de template com herança simples.
+ *
+ * Problema que resolve: sem isso, cada view repetiria o <html>, <head>,
+ * navbar e footer inteiros. Com Layout, cada view declara apenas seu
+ * conteúdo e qual layout quer usar.
+ *
+ * Como funciona o ciclo de renderização:
+ *   1. view('admin/users', $data)  →  chama Layout::render()
+ *   2. Layout::render() inclui a view (ex: views/admin/users.php)
+ *   3. A view chama Layout::set('main') e preenche blocos com Layout::start/end
+ *   4. Após a view terminar, Layout::render() inclui o layout escolhido
+ *   5. O layout chama Layout::slot('content') nos pontos certos para inserir os blocos
+ *
+ * Exemplo de view filha (views/admin/users.php):
+ *
+ *   <?php
+ *   Layout::set('main');
+ *   Layout::block('title', 'Usuários');
+ *   Layout::start('content');
+ *   ?>
+ *   <h1>Lista de usuários</h1>
+ *   <?php Layout::end(); ?>
+ *
+ * Exemplo de layout (views/layouts/main.php):
+ *
+ *   <title><?php Layout::slot('title', 'Sistema') ?></title>
+ *   <body>
+ *     <?php Layout::slot('content') ?>
+ *   </body>
+ *
+ * Blocos disponíveis por convenção:
+ *   'title'   → texto do <title>
+ *   'head'    → CSS ou meta extras no <head>
+ *   'content' → corpo principal da página
+ *   'scripts' → JS extra antes do </body>
+ */
+class Layout
+{
+    private static ?string $current = null; // nome do layout escolhido pela view
+    private static array   $blocks  = [];   // conteúdo capturado por bloco
+
+    /** Define qual layout a view vai usar. Deve ser chamado no topo da view. */
+    public static function set(string $name): void
+    {
+        self::$current = $name;
+    }
+
+    /**
+     * Define o conteúdo de um bloco com string ou closure.
+     *
+     * Layout::block('title', 'Usuários');
+     * Layout::block('content', function() { echo '<p>Olá</p>'; });
+     */
+    public static function block(string $name, string|callable $content): void
+    {
+        if (is_callable($content)) {
+            ob_start();
+            $content();
+            self::$blocks[$name] = ob_get_clean();
+        } else {
+            self::$blocks[$name] = $content;
+        }
+    }
+
+    /**
+     * Inicia a captura de um bloco com HTML.
+     * Fechar com Layout::end().
+     *
+     * Layout::start('content');
+     *   echo '<h1>Conteúdo</h1>';
+     * Layout::end();
+     */
+    public static function start(string $name): void
+    {
+        self::$blocks['__capturing'] = $name;
+        ob_start();
+    }
+
+    /** Encerra a captura iniciada com start() e salva o bloco. */
+    public static function end(): void
+    {
+        $name = self::$blocks['__capturing'] ?? null;
+        if ($name) {
+            self::$blocks[$name] = ob_get_clean();
+            unset(self::$blocks['__capturing']);
+        }
+    }
+
+    /**
+     * Exibe o conteúdo de um bloco dentro do layout.
+     * Usado pelo arquivo de layout para inserir os blocos da view filha.
+     *
+     * Layout::slot('content')           → exibe o bloco ou string vazia
+     * Layout::slot('title', 'Sistema')  → exibe o bloco ou o fallback
+     */
+    public static function slot(string $name, string $default = ''): void
+    {
+        echo self::$blocks[$name] ?? $default;
+    }
+
+    /**
+     * Ponto de entrada chamado por view() no helpers.php.
+     * Carrega a view filha (que preenche os blocos) e depois o layout.
+     */
+    public static function render(string $viewPath, array $data = []): void
+    {
+        self::$current = null;
+        self::$blocks  = [];
+
+        // Extrai os dados como variáveis locais e carrega a view filha
+        extract($data, EXTR_SKIP);
+        require $viewPath;
+
+        // Se a view não chamou Layout::set(), ela se renderizou sozinha — encerra
+        if (!self::$current) {
+            return;
+        }
+
+        // Carrega o layout que a view escolheu
+        $layoutPath = ROOT . '/app/views/layouts/' . self::$current . '.php';
+
+        if (!file_exists($layoutPath)) {
+            error_log("Layout não encontrado: {$layoutPath}");
+            http_response_code(500);
+            die('Erro interno: layout não encontrado.');
+        }
+
+        extract($data, EXTR_SKIP);
+        require $layoutPath;
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/utils/ErrorHandler.php
+================================================================================
+<?php
+
+class ErrorHandler
+{
+    public static function register(): void
+    {
+        set_exception_handler(function (Throwable $e) {
+            self::logException($e);
+            self::serverError();
+        });
+
+        register_shutdown_function(function () {
+            $err = error_get_last();
+            if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR])) {
+                self::logFatal($err);
+                self::serverError();
+            }
+        });
+
+        set_error_handler(function (int $severity, string $message, string $file, int $line): bool {
+            if (!(error_reporting() & $severity)) return false;
+            throw new ErrorException($message, 0, $severity, $file, $line);
+        });
+    }
+
+    // ── Respostas HTTP ────────────────────────────────────────────────────────
+
+    public static function notFound(): never
+    {
+        http_response_code(404);
+        self::render('errors/404', 'Página não encontrada');
+        exit;
+    }
+
+    public static function forbidden(): never
+    {
+        http_response_code(403);
+        self::render('errors/403', 'Acesso negado');
+        exit;
+    }
+
+    public static function serverError(string $logMessage = ''): never
+    {
+        if ($logMessage) {
+            appLog('error', $logMessage);
+        }
+        http_response_code(500);
+        self::render('errors/500', 'Erro interno');
+        exit;
+    }
+
+    // ── Log estruturado ───────────────────────────────────────────────────────
+
+    private static function logException(Throwable $e): void
+    {
+        $context = [
+            'class' => get_class($e),
+            'file'  => basename($e->getFile()) . ':' . $e->getLine(),
+            'ip'    => $_SERVER['REMOTE_ADDR'] ?? 'cli',
+            'uri'   => $_SERVER['REQUEST_URI'] ?? '',
+        ];
+
+        if (isset($_SESSION['user_id'])) {
+            $context['user'] = $_SESSION['user_id'];
+        }
+
+        $ctx  = implode(' | ', array_map(fn($k, $v) => "{$k}:{$v}", array_keys($context), $context));
+        $line = sprintf('[%s] [EXCEPTION] %s | %s', date('Y-m-d H:i:s'), $e->getMessage(), $ctx);
+
+        if (defined('LOG_TRACE') && LOG_TRACE) {
+            // Trace resumido: só as 5 primeiras linhas, sem path absoluto
+            $trace = array_slice(explode("\n", $e->getTraceAsString()), 0, 5);
+            $trace = array_map(fn($l) => preg_replace('#' . preg_quote(ROOT, '#') . '#', '', $l), $trace);
+            $line .= "\n  Trace: " . implode("\n         ", $trace);
+        }
+
+        error_log($line);
+    }
+
+    private static function logFatal(array $err): void
+    {
+        $context = [
+            'file' => basename($err['file']) . ':' . $err['line'],
+            'ip'   => $_SERVER['REMOTE_ADDR'] ?? 'cli',
+        ];
+        $ctx  = implode(' | ', array_map(fn($k, $v) => "{$k}:{$v}", array_keys($context), $context));
+        error_log(sprintf('[%s] [FATAL] %s | %s', date('Y-m-d H:i:s'), $err['message'], $ctx));
+    }
+
+    // ── Render ────────────────────────────────────────────────────────────────
+
+    private static function render(string $template, string $fallbackTitle): void
+    {
+        $path = ROOT . '/app/views/' . $template . '.php';
+
+        if (file_exists($path)) {
+            Layout::render($path, ['title' => $fallbackTitle]);
+        } else {
+            echo "<!DOCTYPE html><html><head><title>{$fallbackTitle}</title></head>"
+               . "<body style='font-family:sans-serif;padding:2rem'>"
+               . "<h1>{$fallbackTitle}</h1><a href='" . url('/') . "'>Voltar ao início</a></body></html>";
+        }
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/utils/DateUtil.php
+================================================================================
+<?php
+
+class DateUtil
+{
+    /**
+     * Converte data ISO (Y-m-d) para formato brasileiro (d/m/Y).
+     */
+    public static function toBr(?string $date): string
+    {
+        if (!$date) return '—';
+        $dt = DateTime::createFromFormat('Y-m-d', $date);
+        return $dt ? $dt->format('d/m/Y') : $date;
+    }
+
+    /**
+     * Converte data ISO com hora para formato legível em PT-BR.
+     * Ex: 2024-01-15 14:30:00 → 15/01/2024 14:30
+     */
+    public static function toBrFull(?string $datetime): string
+    {
+        if (!$datetime) return '—';
+        $dt = DateTime::createFromFormat('Y-m-d H:i:s', $datetime);
+        return $dt ? $dt->format('d/m/Y H:i') : $datetime;
+    }
+
+    /**
+     * Retorna quantos dias passaram desde uma data.
+     * Ex: 5 dias atrás
+     */
+    public static function daysAgo(string $date): string
+    {
+        $dt   = new DateTime($date);
+        $now  = new DateTime();
+        $diff = $now->diff($dt);
+
+        if ($diff->days === 0) return 'hoje';
+        if ($diff->days === 1) return 'ontem';
+        return $diff->days . ' dias atrás';
+    }
+
+    /**
+     * Retorna a data de hoje no formato Y-m-d.
+     */
+    public static function today(): string
+    {
+        return date('Y-m-d');
+    }
+
+    /**
+     * Retorna o timestamp atual formatado para log.
+     */
+    public static function now(): string
+    {
+        return date('Y-m-d H:i:s');
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/middlewares/Auth.php
+================================================================================
+<?php
+/**
+ * MIDDLEWARE AUTH — garante que o usuário está autenticado.
+ *
+ * Se não houver sessão ativa:
+ *   1. Salva o caminho atual em $_SESSION['redirect_after_login']
+ *      para que o AuthController redirecione de volta após o login.
+ *   2. Redireciona para /login.
+ *
+ * Executado pelo pipeline do index.php antes do controller.
+ */
+class Auth
+{
+    public static function handle(): void
+    {
+        if (!isset($_SESSION['user_id'])) {
+            $_SESSION['redirect_after_login'] = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+            redirect('/login');
+        }
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/middlewares/Rbac.php
+================================================================================
+<?php
+
+/**
+ * Middleware de verificação de permissão por ação.
+ *
+ * Uso nas rotas: 'Rbac:user.view', 'Rbac:report.export'
+ * Delega toda a lógica ao RbacService — o middleware só faz a ponte.
+ */
+class Rbac
+{
+    public static function handle(string $action): void
+    {
+        RbacService::authorize($action);
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/services/RbacService.php
+================================================================================
+<?php
+
+/**
+ * RBAC baseado em banco de dados com cache de sessão.
+ *
+ * Fluxo:
+ *   1. Login → sessão criada com user_role
+ *   2. Primeira requisição protegida → carrega permissões do banco, salva na sessão
+ *   3. Requisições seguintes → lê da sessão (zero queries)
+ *   4. Logout / troca de cargo → invalidate() limpa o cache
+ *
+ * Para mudar permissões sem deploy:
+ *   RbacService::grant('editor', 'report.export');
+ *   RbacService::revoke('editor', 'report.export');
+ */
+class RbacService
+{
+    private const SESSION_KEY  = '_rbac_permissions';
+    private const SESSION_ROLE = '_rbac_role';
+
+    // ── Verificação ───────────────────────────────────────────────────────────
+
+    /**
+     * Verifica se o usuário logado pode executar uma ação.
+     */
+    public static function can(string $action): bool
+    {
+        $role = $_SESSION['user_role'] ?? '';
+        if (!$role) return false;
+        return in_array($action, self::loadForRole($role), true);
+    }
+
+    /**
+     * Encerra com 403 se o usuário não puder executar a ação.
+     */
+    public static function authorize(string $action): void
+    {
+        if (!self::can($action)) {
+            appLog('warning', 'Acesso negado: permissão insuficiente', '', 0, [
+                'action' => $action,
+                'role'   => $_SESSION['user_role'] ?? '?',
+                'uri'    => $_SERVER['REQUEST_URI'] ?? '?',
+            ]);
+            ErrorHandler::forbidden();
+        }
+    }
+
+    // ── Cache ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Retorna as permissões do cargo — da sessão ou do banco.
+     */
+    public static function loadForRole(string $role): array
+    {
+        $cached     = $_SESSION[self::SESSION_KEY]  ?? null;
+        $cachedRole = $_SESSION[self::SESSION_ROLE] ?? null;
+
+        if ($cached !== null && $cachedRole === $role) {
+            return $cached;
+        }
+
+        $permissions = (new PermissionRepository())->forRole($role);
+
+        $_SESSION[self::SESSION_KEY]  = $permissions;
+        $_SESSION[self::SESSION_ROLE] = $role;
+
+        return $permissions;
+    }
+
+    /**
+     * Limpa o cache. Chamar no logout e ao alterar o cargo de um usuário.
+     */
+    public static function invalidate(): void
+    {
+        unset($_SESSION[self::SESSION_KEY], $_SESSION[self::SESSION_ROLE]);
+    }
+
+    // ── Gerenciamento ─────────────────────────────────────────────────────────
+
+    public static function grant(string $role, string $action): void
+    {
+        (new PermissionRepository())->grant($role, $action);
+        self::invalidate();
+    }
+
+    public static function revoke(string $role, string $action): void
+    {
+        (new PermissionRepository())->revoke($role, $action);
+        self::invalidate();
+    }
+
+    public static function allRoles(): array
+    {
+        return (new PermissionRepository())->allRoles();
+    }
+
+    public static function permissionsFor(string $role): array
+    {
+        return (new PermissionRepository())->forRole($role);
+    }
+
+    public static function allPermissions(): array
+    {
+        return (new PermissionRepository())->allPermissions();
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/repositories/UserRepository.php
+================================================================================
+<?php
+
+class UserRepository
+{
+    private PDO $db;
+
+    public function __construct(?PDO $db = null)
+    {
+        $this->db = $db ?? getPDO();
+    }
+
+    public function find(int $id): ?array
+    {
+        $stmt = $this->db->prepare('SELECT * FROM users WHERE id = ? LIMIT 1');
+        $stmt->execute([$id]);
+        return $stmt->fetch() ?: null;
+    }
+
+    public function findByEmail(string $email): ?array
+    {
+        $stmt = $this->db->prepare('SELECT * FROM users WHERE email = ? LIMIT 1');
+        $stmt->execute([$email]);
+        return $stmt->fetch() ?: null;
+    }
+
+    public function all(): array
+    {
+        return $this->db
+            ->query('SELECT id, name, email, role, created_at FROM users ORDER BY id')
+            ->fetchAll();
+    }
+
+    public function create(string $name, string $email, string $passwordHash, string $role = 'user'): int
+    {
+        $stmt = $this->db->prepare(
+            'INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)'
+        );
+        $stmt->execute([$name, $email, $passwordHash, $role]);
+        return (int) $this->db->lastInsertId();
+    }
+
+    public function update(int $id, array $data): bool
+    {
+        $fields = implode(', ', array_map(fn($k) => "{$k} = ?", array_keys($data)));
+        $stmt   = $this->db->prepare("UPDATE users SET {$fields} WHERE id = ?");
+        return $stmt->execute([...array_values($data), $id]);
+    }
+
+    public function delete(int $id): bool
+    {
+        $stmt = $this->db->prepare('DELETE FROM users WHERE id = ?');
+        return $stmt->execute([$id]);
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/repositories/PermissionRepository.php
+================================================================================
+<?php
+
+class PermissionRepository
+{
+    private PDO $db;
+
+    public function __construct(PDO $db = null)
+    {
+        $this->db = $db ?? getPDO();
+    }
+
+    /**
+     * Retorna array de actions para um cargo.
+     * Ex: ['dashboard.view', 'user.edit', 'report.view']
+     */
+    public function forRole(string $role): array
+    {
+        $stmt = $this->db->prepare('
+            SELECT p.action
+            FROM permissions p
+            JOIN role_permissions rp ON rp.permission_id = p.id
+            JOIN roles r             ON r.id = rp.role_id
+            WHERE r.name = ?
+        ');
+        $stmt->execute([$role]);
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    /**
+     * Retorna todos os cargos cadastrados.
+     */
+    public function allRoles(): array
+    {
+        return $this->db->query('SELECT name FROM roles ORDER BY name')
+                        ->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    /**
+     * Concede uma permissão a um cargo.
+     * Cria a permissão se não existir.
+     */
+    public function grant(string $role, string $action): void
+    {
+        $this->ensurePermission($action);
+
+        $this->db->prepare('
+            INSERT IGNORE INTO role_permissions (role_id, permission_id)
+            SELECT r.id, p.id FROM roles r, permissions p
+            WHERE r.name = ? AND p.action = ?
+        ')->execute([$role, $action]);
+    }
+
+    /**
+     * Revoga uma permissão de um cargo.
+     */
+    public function revoke(string $role, string $action): void
+    {
+        $this->db->prepare('
+            DELETE rp FROM role_permissions rp
+            JOIN roles r       ON r.id = rp.role_id
+            JOIN permissions p ON p.id = rp.permission_id
+            WHERE r.name = ? AND p.action = ?
+        ')->execute([$role, $action]);
+    }
+
+    /**
+     * Lista todas as permissões disponíveis no sistema.
+     */
+    public function allPermissions(): array
+    {
+        return $this->db->query('SELECT action FROM permissions ORDER BY action')
+                        ->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    /**
+     * Garante que a permissão existe na tabela permissions.
+     */
+    private function ensurePermission(string $action): void
+    {
+        $this->db->prepare('INSERT IGNORE INTO permissions (action) VALUES (?)')
+                 ->execute([$action]);
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/repositories/ClienteRepository.php
+================================================================================
+<?php
+
+class ClienteRepository
+{
+    private PDO $db;
+
+    public function __construct(?PDO $db = null)
+    {
+        $this->db = $db ?? getPDO();
+    }
+
+    public function all(): array
+    {
+        return $this->db
+            ->query('SELECT * FROM clientes ORDER BY nome')
+            ->fetchAll();
+    }
+
+    public function find(int $id): ?array
+    {
+        $stmt = $this->db->prepare('SELECT * FROM clientes WHERE id = ? LIMIT 1');
+        $stmt->execute([$id]);
+        return $stmt->fetch() ?: null;
+    }
+
+    public function findByCpf(string $cpf): ?array
+    {
+        $stmt = $this->db->prepare('SELECT * FROM clientes WHERE cpf = ? LIMIT 1');
+        $stmt->execute([$cpf]);
+        return $stmt->fetch() ?: null;
+    }
+
+    public function create(string $nome, string $cpf): int
+    {
+        $stmt = $this->db->prepare(
+            'INSERT INTO clientes (nome, cpf) VALUES (?, ?)'
+        );
+        $stmt->execute([$nome, $cpf]);
+        return (int) $this->db->lastInsertId();
+    }
+
+    public function update(int $id, string $nome, string $cpf): bool
+    {
+        $stmt = $this->db->prepare(
+            'UPDATE clientes SET nome = ?, cpf = ? WHERE id = ?'
+        );
+        return $stmt->execute([$nome, $cpf, $id]);
+    }
+
+    public function delete(int $id): bool
+    {
+        $stmt = $this->db->prepare('DELETE FROM clientes WHERE id = ?');
+        return $stmt->execute([$id]);
+    }
+}
+
+    /**
+     * Busca para autocomplete — pesquisa por nome OU CPF.
+     */
+    public function search(string $termo): array
+    {
+        $like = '%' . $termo . '%';
+        $stmt = $this->db->prepare('
+            SELECT id, nome, cpf
+            FROM   clientes
+            WHERE  nome LIKE ? OR cpf LIKE ?
+            ORDER  BY nome
+            LIMIT  10
+        ');
+        $stmt->execute([$like, $like]);
+        return $stmt->fetchAll();
+    }
+
+
+================================================================================
+ARQUIVO: app/repositories/ProdutoRepository.php
+================================================================================
+<?php
+
+class ProdutoRepository
+{
+    private PDO $db;
+
+    public function __construct(?PDO $db = null)
+    {
+        $this->db = $db ?? getPDO();
+    }
+
+    public function find(int $id): ?array
+    {
+        $stmt = $this->db->prepare('SELECT * FROM produtos WHERE id = ? LIMIT 1');
+        $stmt->execute([$id]);
+        return $stmt->fetch() ?: null;
+    }
+
+    public function all(): array
+    {
+        return $this->db
+            ->query('SELECT * FROM produtos WHERE ativo = 1 ORDER BY nome')
+            ->fetchAll();
+    }
+
+    /**
+     * Busca para autocomplete — retorna id, codigo, nome, preco.
+     * Pesquisa por nome OU código. Máximo 10 resultados.
+     */
+    public function search(string $termo): array
+    {
+        $like = '%' . $termo . '%';
+        $stmt = $this->db->prepare('
+            SELECT id, codigo, nome, preco, estoque
+            FROM   produtos
+            WHERE  ativo = 1
+            AND    (nome LIKE ? OR codigo LIKE ?)
+            ORDER  BY nome
+            LIMIT  10
+        ');
+        $stmt->execute([$like, $like]);
+        return $stmt->fetchAll();
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/repositories/PedidoRepository.php
+================================================================================
+<?php
+
+class PedidoRepository
+{
+    private PDO $db;
+
+    public function __construct(?PDO $db = null)
+    {
+        $this->db = $db ?? getPDO();
+    }
+
+    public function all(): array
+    {
+        return $this->db->query('
+            SELECT p.*, c.nome AS cliente_nome
+            FROM   pedidos p
+            JOIN   clientes c ON c.id = p.cliente_id
+            ORDER  BY p.created_at DESC
+        ')->fetchAll();
+    }
+
+    public function find(int $id): ?array
+    {
+        $stmt = $this->db->prepare('
+            SELECT p.*, c.nome AS cliente_nome
+            FROM   pedidos p
+            JOIN   clientes c ON c.id = p.cliente_id
+            WHERE  p.id = ?
+            LIMIT  1
+        ');
+        $stmt->execute([$id]);
+        return $stmt->fetch() ?: null;
+    }
+
+    public function itens(int $pedidoId): array
+    {
+        $stmt = $this->db->prepare('
+            SELECT pi.*, pr.nome AS produto_nome, pr.codigo AS produto_codigo
+            FROM   pedido_itens pi
+            JOIN   produtos pr ON pr.id = pi.produto_id
+            WHERE  pi.pedido_id = ?
+            ORDER  BY pi.id
+        ');
+        $stmt->execute([$pedidoId]);
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Cria pedido + itens numa transação.
+     * $itens = [['produto_id' => 1, 'quantidade' => 2, 'preco_unit' => 99.90], ...]
+     */
+    public function create(int $clienteId, float $desconto, string $observacao, array $itens): int
+    {
+        $this->db->beginTransaction();
+
+        try {
+            $total = $this->calcularTotal($itens, $desconto);
+
+            $stmt = $this->db->prepare('
+                INSERT INTO pedidos (cliente_id, desconto, total, observacao)
+                VALUES (?, ?, ?, ?)
+            ');
+            $stmt->execute([$clienteId, $desconto, $total, $observacao]);
+            $pedidoId = (int) $this->db->lastInsertId();
+
+            $this->inserirItens($pedidoId, $itens);
+
+            $this->db->commit();
+            return $pedidoId;
+
+        } catch (Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    public function update(int $id, int $clienteId, float $desconto, string $observacao, array $itens): void
+    {
+        $this->db->beginTransaction();
+
+        try {
+            $total = $this->calcularTotal($itens, $desconto);
+
+            $this->db->prepare('
+                UPDATE pedidos SET cliente_id=?, desconto=?, total=?, observacao=? WHERE id=?
+            ')->execute([$clienteId, $desconto, $total, $observacao, $id]);
+
+            // Remove itens antigos e reinsere — simples e correto
+            $this->db->prepare('DELETE FROM pedido_itens WHERE pedido_id = ?')->execute([$id]);
+            $this->inserirItens($id, $itens);
+
+            $this->db->commit();
+
+        } catch (Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    public function delete(int $id): bool
+    {
+        return $this->db->prepare('DELETE FROM pedidos WHERE id = ?')->execute([$id]);
+    }
+
+    // ── Internos ──────────────────────────────────────────────────────────────
+
+    private function calcularTotal(array $itens, float $desconto): float
+    {
+        $subtotal = array_sum(array_column($itens, 'subtotal'));
+        return round($subtotal * (1 - $desconto / 100), 2);
+    }
+
+    private function inserirItens(int $pedidoId, array $itens): void
+    {
+        $stmt = $this->db->prepare('
+            INSERT INTO pedido_itens (pedido_id, produto_id, quantidade, preco_unit, subtotal)
+            VALUES (?, ?, ?, ?, ?)
+        ');
+        foreach ($itens as $item) {
+            $stmt->execute([
+                $pedidoId,
+                $item['produto_id'],
+                $item['quantidade'],
+                $item['preco_unit'],
+                $item['subtotal'],
+            ]);
+        }
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/controllers/BaseController.php
+================================================================================
+<?php
+
+/**
+ * Controller base com injeção de dependência manual no construtor.
+ *
+ * Padrão para controllers filhos:
+ *
+ *   class UserController extends BaseController
+ *   {
+ *       public function __construct(
+ *           private UserRepository    $users    = new UserRepository(),
+ *           private PermissionRepository $perms = new PermissionRepository(),
+ *       ) {}
+ *   }
+ *
+ * Benefício: quando UserRepository precisar de um novo colaborador,
+ * você muda o construtor de UserRepository — não todos os controllers.
+ * Em testes, passa um mock no lugar da dependência real.
+ */
+abstract class BaseController
+{
+    // ── View ──────────────────────────────────────────────────────────────────
+
+    protected function view(string $template, array $data = []): void
+    {
+        view($template, $data);
+    }
+
+    // ── Resposta ──────────────────────────────────────────────────────────────
+
+    protected function json(mixed $data, int $status = 200): never
+    {
+        http_response_code($status);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    protected function redirect(string $url): never
+    {
+        redirect($url);
+    }
+
+    // ── Segurança ─────────────────────────────────────────────────────────────
+
+    protected function authorize(string $action): void
+    {
+        RbacService::authorize($action);
+    }
+
+    protected function csrf(): void
+    {
+        csrfValidate();
+    }
+
+    // ── Rota ──────────────────────────────────────────────────────────────────
+
+    protected function param(string $name, mixed $default = null): mixed
+    {
+        return $GLOBALS['_ROUTE_PARAMS'][$name] ?? $default;
+    }
+
+    // ── Validação ─────────────────────────────────────────────────────────────
+
+    /**
+     * Valida campos do POST.
+     *
+     * Forma curta  — só obrigatório:
+     *   'campo' => 'Label'
+     *
+     * Forma completa — com regras:
+     *   'campo' => ['label' => 'Label', 'email' => true, 'min' => 3, 'max' => 100]
+     *
+     * Retorna array de erros (vazio = tudo válido).
+     */
+    protected function validate(array $rules): array
+    {
+        $errors = [];
+
+        foreach ($rules as $field => $rule) {
+            $value = trim($_POST[$field] ?? '');
+
+            if (is_string($rule)) {
+                if ($value === '') $errors[$field] = "O campo {$rule} é obrigatório.";
+                continue;
+            }
+
+            $label    = $rule['label'] ?? $field;
+            $required = $rule['required'] ?? true;
+
+            if ($required && $value === '') {
+                $errors[$field] = "O campo {$label} é obrigatório.";
+                continue;
+            }
+
+            if (!empty($rule['email']) && $value && !filter_var($value, FILTER_VALIDATE_EMAIL)) {
+                $errors[$field] = "O campo {$label} deve ser um e-mail válido.";
+            }
+
+            if (isset($rule['min']) && mb_strlen($value) < $rule['min']) {
+                $errors[$field] = "O campo {$label} deve ter ao menos {$rule['min']} caracteres.";
+            }
+
+            if (isset($rule['max']) && mb_strlen($value) > $rule['max']) {
+                $errors[$field] = "O campo {$label} deve ter no máximo {$rule['max']} caracteres.";
+            }
+        }
+
+        return $errors;
+    }
+
+    // ── Erros HTTP ────────────────────────────────────────────────────────────
+
+    protected function notFound(): never
+    {
+        ErrorHandler::notFound();
+    }
+
+    protected function forbidden(): never
+    {
+        ErrorHandler::forbidden();
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/controllers/AuthController.php
+================================================================================
+<?php
+
+class AuthController extends BaseController
+{
+    public function __construct(
+        private UserRepository $users = new UserRepository()
+    ) {}
+
+    public function login(): void
+    {
+        if (isLoggedIn()) $this->redirect('/dashboard');
+        $this->view('auth/login');
+    }
+
+    public function doLogin(): void
+    {
+        $this->csrf();
+
+        $errors = $this->validate([
+            'email'    => ['label' => 'E-mail', 'email' => true],
+            'password' => 'Senha',
+        ]);
+
+        if ($errors) {
+            $this->view('auth/login', ['errors' => $errors]);
+            return;
+        }
+
+        $email = post('email');
+        $user  = $this->users->findByEmail($email);
+
+        if (!$user || !password_verify(post('password'), $user['password'])) {
+            appLog('warning', 'Login falhou: credenciais inválidas', __FILE__, __LINE__, [
+                'email' => $email,
+            ]);
+            $this->view('auth/login', ['errors' => ['email' => 'E-mail ou senha incorretos.']]);
+            return;
+        }
+
+        session_regenerate_id(true);
+        RbacService::invalidate();
+
+        $_SESSION['user_id']   = $user['id'];
+        $_SESSION['user_name'] = $user['name'];
+        $_SESSION['user_role'] = $user['role'];
+
+        appLog('info', 'Login realizado', __FILE__, __LINE__, [
+            'email' => $email,
+            'role'  => $user['role'],
+        ]);
+
+        $destination = $_SESSION['redirect_after_login'] ?? '/dashboard';
+        unset($_SESSION['redirect_after_login']);
+        $this->redirect($destination);
+    }
+
+    public function logout(): void
+    {
+        appLog('info', 'Logout', __FILE__, __LINE__);
+        RbacService::invalidate();
+        session_destroy();
+        $this->redirect('/login');
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/controllers/HomeController.php
+================================================================================
+<?php
+
+class HomeController extends BaseController
+{
+    public function index(): void
+    {
+        $this->view('home/index', ['title' => 'Início']);
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/controllers/DashController.php
+================================================================================
+<?php
+
+class DashController extends BaseController
+{
+    public function index(): void
+    {
+        $this->authorize('dashboard.view');
+        $this->view('dash/index', [
+            'title'       => 'Dashboard',
+            'userName'    => $_SESSION['user_name'],
+            'userRole'    => $_SESSION['user_role'],
+            'permissions' => RbacService::loadForRole($_SESSION['user_role']),
+        ]);
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/controllers/AdminController.php
+================================================================================
+<?php
+
+class AdminController extends BaseController
+{
+    public function __construct(
+        private UserRepository       $users = new UserRepository(),
+        private PermissionRepository $perms = new PermissionRepository(),
+    ) {}
+
+    public function index(): void
+    {
+        $this->authorize('admin.view');
+        $this->view('admin/index', [
+            'title'    => 'Painel Admin',
+            'userName' => $_SESSION['user_name'],
+        ]);
+    }
+
+    public function users(): void
+    {
+        $this->authorize('user.view');
+        $this->view('admin/users', [
+            'title'   => 'Usuários',
+            'users'   => $this->users->all(),
+            'columns' => [
+                'id'         => 'ID',
+                'name'       => 'Nome',
+                'email'      => 'E-mail',
+                'role'       => 'Cargo',
+                'created_at' => 'Cadastro',
+            ],
+        ]);
+    }
+
+    public function showUser(): void
+    {
+        $this->authorize('user.view');
+        $user = $this->users->find((int) $this->param('id'));
+        if (!$user) $this->notFound();
+        $this->view('admin/show-user', ['title' => 'Usuário', 'user' => $user]);
+    }
+
+    public function editUser(): void
+    {
+        $this->authorize('user.edit');
+        $user = $this->users->find((int) $this->param('id'));
+        if (!$user) $this->notFound();
+        $this->view('admin/edit-user', [
+            'title' => 'Editar Usuário',
+            'user'  => $user,
+            'roles' => RbacService::allRoles(),
+        ]);
+    }
+
+    public function updateUser(): void
+    {
+        $this->authorize('user.edit');
+        $this->csrf();
+
+        $errors = $this->validate([
+            'name'  => ['label' => 'Nome',   'min' => 2, 'max' => 100],
+            'email' => ['label' => 'E-mail', 'email' => true],
+        ]);
+
+        $id = (int) $this->param('id');
+
+        if ($errors) {
+            $user = $this->users->find($id);
+            $this->view('admin/edit-user', [
+                'title'  => 'Editar Usuário',
+                'user'   => $user,
+                'roles'  => RbacService::allRoles(),
+                'errors' => $errors,
+            ]);
+            return;
+        }
+
+        $this->users->update($id, ['name' => post('name'), 'email' => post('email')]);
+        appLog('info', "user_id={$_SESSION['user_id']} atualizou user/{$id}");
+        $this->redirect('/admin/users');
+    }
+
+    public function deleteUser(): void
+    {
+        $this->authorize('user.delete');
+        $this->csrf();
+        $id = (int) $this->param('id');
+        $this->users->delete($id);
+        appLog('info', "user_id={$_SESSION['user_id']} deletou user/{$id}");
+        $this->redirect('/admin/users');
+    }
+
+    public function reports(): void
+    {
+        $this->authorize('report.view');
+        $this->view('admin/reports', [
+            'title' => 'Relatórios',
+            'today' => DateUtil::toBr(DateUtil::today()),
+        ]);
+    }
+
+    // ── Gerenciamento de permissões ───────────────────────────────────────────
+
+    public function permissions(): void
+    {
+        $this->authorize('admin.view');
+        $this->view('admin/permissions', [
+            'title'       => 'Permissões',
+            'roles'       => RbacService::allRoles(),
+            'permissions' => RbacService::allPermissions(),
+        ]);
+    }
+
+    public function grantPermission(): void
+    {
+        $this->authorize('admin.view');
+        $this->csrf();
+        RbacService::grant(post('role'), post('action'));
+        $this->redirect('/admin/permissions');
+    }
+
+    public function revokePermission(): void
+    {
+        $this->authorize('admin.view');
+        $this->csrf();
+        RbacService::revoke(post('role'), post('action'));
+        $this->redirect('/admin/permissions');
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/controllers/ClienteController.php
+================================================================================
+<?php
+
+class ClienteController extends BaseController
+{
+    public function __construct(
+        private ClienteRepository $clientes = new ClienteRepository()
+    ) {}
+
+    public function index(): void
+    {
+        $this->authorize('cliente.view');
+        $this->view('clientes/index', [
+            'clientes' => $this->clientes->all(),
+        ]);
+    }
+
+    public function novo(): void
+    {
+        $this->authorize('cliente.create');
+        $this->view('clientes/form', ['cliente' => null]);
+    }
+
+    public function store(): void
+    {
+        $this->authorize('cliente.create');
+        $this->csrf();
+
+        [$erros, $nome, $cpf] = $this->validar();
+
+        if ($erros) {
+            $this->view('clientes/form', ['cliente' => null, 'erros' => $erros]);
+            return;
+        }
+
+        if ($this->clientes->findByCpf($cpf)) {
+            appLog('warning', 'Tentativa de cadastro com CPF duplicado', __FILE__, __LINE__, [
+                'cpf' => $cpf,
+            ]);
+            $this->view('clientes/form', [
+                'cliente' => null,
+                'erros'   => ['cpf' => 'Este CPF já está cadastrado.'],
+            ]);
+            return;
+        }
+
+        $id = $this->clientes->create($nome, $cpf);
+        appLog('info', 'Cliente criado', __FILE__, __LINE__, ['cliente_id' => $id, 'cpf' => $cpf]);
+        $this->redirect('/clientes?ok=criado');
+    }
+
+    public function editar(): void
+    {
+        $this->authorize('cliente.edit');
+        $cliente = $this->clientes->find((int) $this->param('id'));
+        if (!$cliente) $this->notFound();
+        $this->view('clientes/form', ['cliente' => $cliente]);
+    }
+
+    public function update(): void
+    {
+        $this->authorize('cliente.edit');
+        $this->csrf();
+
+        $id      = (int) $this->param('id');
+        $cliente = $this->clientes->find($id);
+        if (!$cliente) $this->notFound();
+
+        [$erros, $nome, $cpf] = $this->validar();
+
+        if ($erros) {
+            $this->view('clientes/form', ['cliente' => $cliente, 'erros' => $erros]);
+            return;
+        }
+
+        $existente = $this->clientes->findByCpf($cpf);
+        if ($existente && (int) $existente['id'] !== $id) {
+            appLog('warning', 'Tentativa de atualização com CPF de outro cliente', __FILE__, __LINE__, [
+                'cliente_id'   => $id,
+                'cpf_conflito' => $cpf,
+            ]);
+            $this->view('clientes/form', [
+                'cliente' => $cliente,
+                'erros'   => ['cpf' => 'Este CPF já está cadastrado para outro cliente.'],
+            ]);
+            return;
+        }
+
+        $this->clientes->update($id, $nome, $cpf);
+        appLog('info', 'Cliente atualizado', __FILE__, __LINE__, ['cliente_id' => $id]);
+        $this->redirect('/clientes?ok=atualizado');
+    }
+
+    public function delete(): void
+    {
+        $this->authorize('cliente.delete');
+        $this->csrf();
+
+        $id = (int) $this->param('id');
+        if (!$this->clientes->find($id)) $this->notFound();
+
+        $this->clientes->delete($id);
+        appLog('info', 'Cliente excluído', __FILE__, __LINE__, ['cliente_id' => $id]);
+        $this->redirect('/clientes?ok=deletado');
+    }
+
+    // ── Validação ─────────────────────────────────────────────────────────────
+
+    private function validar(): array
+    {
+        $erros = [];
+        $nome  = trim(post('nome'));
+        $cpf   = post('cpf');
+
+        if ($nome === '') {
+            $erros['nome'] = 'O nome é obrigatório.';
+        } elseif (mb_strlen($nome) < 3) {
+            $erros['nome'] = 'O nome deve ter ao menos 3 caracteres.';
+        } elseif (mb_strlen($nome) > 100) {
+            $erros['nome'] = 'O nome deve ter no máximo 100 caracteres.';
+        }
+
+        if ($cpf === '') {
+            $erros['cpf'] = 'O CPF é obrigatório.';
+        } elseif (!$this->cpfValido($cpf)) {
+            $erros['cpf'] = 'CPF inválido.';
+        }
+
+        return [$erros, $nome, $cpf];
+    }
+
+    private function cpfValido(string $cpf): bool
+    {
+        $n = preg_replace('/\D/', '', $cpf);
+        if (strlen($n) !== 11 || preg_match('/^(\d)\1{10}$/', $n)) return false;
+
+        for ($t = 9; $t < 11; $t++) {
+            $soma = 0;
+            for ($i = 0; $i < $t; $i++) $soma += (int) $n[$i] * ($t + 1 - $i);
+            $r = (10 * $soma) % 11;
+            if ((int) $n[$t] !== ($r > 9 ? 0 : $r)) return false;
+        }
+        return true;
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/controllers/PedidoController.php
+================================================================================
+<?php
+
+class PedidoController extends BaseController
+{
+    public function __construct(
+        private PedidoRepository  $pedidos  = new PedidoRepository(),
+        private ClienteRepository $clientes = new ClienteRepository(),
+    ) {}
+
+    // GET /pedidos
+    public function index(): void
+    {
+        $this->authorize('pedido.view');
+        $this->view('pedidos/index', [
+            'pedidos' => $this->pedidos->all(),
+        ]);
+    }
+
+    // GET /pedidos/novo
+    public function novo(): void
+    {
+        $this->authorize('pedido.create');
+        $this->view('pedidos/form', ['pedido' => null, 'itens' => []]);
+    }
+
+    // POST /pedidos
+    public function store(): void
+    {
+        $this->authorize('pedido.create');
+        $this->csrf();
+
+        [$erros, $dados] = $this->validar();
+        if ($erros) {
+            $this->view('pedidos/form', ['pedido' => null, 'itens' => [], 'erros' => $erros]);
+            return;
+        }
+
+        $id = $this->pedidos->create(
+            $dados['cliente_id'],
+            $dados['desconto'],
+            $dados['observacao'],
+            $dados['itens']
+        );
+
+        appLog('info', "pedido #{$id} criado por user_id={$_SESSION['user_id']}");
+        $this->redirect('/pedidos?ok=criado');
+    }
+
+    // GET /pedidos/{id}/editar
+    public function editar(): void
+    {
+        $this->authorize('pedido.edit');
+
+        $id     = (int) $this->param('id');
+        $pedido = $this->pedidos->find($id);
+        if (!$pedido) $this->notFound();
+
+        $this->view('pedidos/form', [
+            'pedido' => $pedido,
+            'itens'  => $this->pedidos->itens($id),
+        ]);
+    }
+
+    // POST /pedidos/{id}
+    public function update(): void
+    {
+        $this->authorize('pedido.edit');
+        $this->csrf();
+
+        $id     = (int) $this->param('id');
+        $pedido = $this->pedidos->find($id);
+        if (!$pedido) $this->notFound();
+
+        [$erros, $dados] = $this->validar();
+        if ($erros) {
+            $this->view('pedidos/form', ['pedido' => $pedido, 'itens' => $this->pedidos->itens($id), 'erros' => $erros]);
+            return;
+        }
+
+        $this->pedidos->update($id, $dados['cliente_id'], $dados['desconto'], $dados['observacao'], $dados['itens']);
+        appLog('info', "pedido #{$id} atualizado por user_id={$_SESSION['user_id']}");
+        $this->redirect('/pedidos?ok=atualizado');
+    }
+
+    // POST /pedidos/{id}/deletar
+    public function delete(): void
+    {
+        $this->authorize('pedido.delete');
+        $this->csrf();
+
+        $id = (int) $this->param('id');
+        if (!$this->pedidos->find($id)) $this->notFound();
+
+        $this->pedidos->delete($id);
+        appLog('info', "pedido #{$id} deletado por user_id={$_SESSION['user_id']}");
+        $this->redirect('/pedidos?ok=deletado');
+    }
+
+    // ── Validação ─────────────────────────────────────────────────────────────
+
+    private function validar(): array
+    {
+        $erros = [];
+
+        $clienteId  = (int) ($_POST['cliente_id'] ?? 0);
+        $desconto   = (float) str_replace(',', '.', $_POST['desconto'] ?? '0');
+        $observacao = trim($_POST['observacao'] ?? '');
+
+        // Itens vêm como JSON no campo hidden
+        $itensJson = $_POST['itens_json'] ?? '[]';
+        $itens     = json_decode($itensJson, true) ?? [];
+
+        if (!$clienteId)       $erros['cliente_id'] = 'Selecione um cliente.';
+        if ($desconto < 0 || $desconto > 100) $erros['desconto'] = 'Desconto deve ser entre 0 e 100%.';
+        if (empty($itens))     $erros['itens'] = 'Adicione ao menos um item ao pedido.';
+
+        // Valida cada item
+        foreach ($itens as $i => $item) {
+            if (empty($item['produto_id']))  $erros["item_{$i}"] = "Item " . ($i+1) . ": produto inválido.";
+            if (empty($item['quantidade']) || $item['quantidade'] < 1) $erros["item_{$i}_qtd"] = "Item " . ($i+1) . ": quantidade inválida.";
+        }
+
+        // Recalcula subtotais no servidor (nunca confiar no JS para valores financeiros)
+        foreach ($itens as &$item) {
+            $item['quantidade'] = max(1, (int) $item['quantidade']);
+            $item['preco_unit'] = round((float) $item['preco_unit'], 2);
+            $item['subtotal']   = round($item['quantidade'] * $item['preco_unit'], 2);
+        }
+
+        return [$erros, compact('clienteId', 'desconto', 'observacao', 'itens')];
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/controllers/ApiController.php
+================================================================================
+<?php
+
+/**
+ * Endpoints JSON para requisições AJAX.
+ *
+ * Convenção de resposta:
+ *   Sucesso: { "ok": true,  "data": [...] }
+ *   Erro:    { "ok": false, "error": "mensagem" }
+ *
+ * Todas as rotas exigem Auth.
+ * Nenhuma rota renderiza HTML — só json().
+ */
+class ApiController extends BaseController
+{
+    // GET /api/clientes/busca?q=joao
+    public function buscarClientes(): void
+    {
+        $this->authorize('cliente.view');
+
+        $q = trim(get('q'));
+        if (strlen($q) < 2) {
+            $this->json(['ok' => true, 'data' => []]);
+        }
+
+        $repo      = new ClienteRepository();
+        $clientes  = $repo->search($q);
+
+        $this->json([
+            'ok'   => true,
+            'data' => array_map(fn($c) => [
+                'id'    => $c['id'],
+                'label' => $c['nome'] . ' — ' . $c['cpf'],
+                'nome'  => $c['nome'],
+                'cpf'   => $c['cpf'],
+            ], $clientes),
+        ]);
+    }
+
+    // GET /api/produtos/busca?q=notebook
+    public function buscarProdutos(): void
+    {
+        $this->authorize('pedido.create');
+
+        $q = trim(get('q'));
+        if (strlen($q) < 2) {
+            $this->json(['ok' => true, 'data' => []]);
+        }
+
+        $repo     = new ProdutoRepository();
+        $produtos = $repo->search($q);
+
+        $this->json([
+            'ok'   => true,
+            'data' => array_map(fn($p) => [
+                'id'       => $p['id'],
+                'label'    => "[{$p['codigo']}] {$p['nome']} — R$ " . number_format($p['preco'], 2, ',', '.'),
+                'nome'     => $p['nome'],
+                'codigo'   => $p['codigo'],
+                'preco'    => $p['preco'],
+                'estoque'  => $p['estoque'],
+            ], $produtos),
+        ]);
+    }
+
+    // GET /api/produtos/{id}
+    public function getProduto(): void
+    {
+        $this->authorize('pedido.create');
+
+        $produto = (new ProdutoRepository())->find((int) $this->param('id'));
+
+        if (!$produto) {
+            $this->json(['ok' => false, 'error' => 'Produto não encontrado.'], 404);
+        }
+
+        $this->json(['ok' => true, 'data' => $produto]);
+    }
+}
+
+
+================================================================================
+ARQUIVO: app/views/layouts/main.php
+================================================================================
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?php Layout::slot('title', 'Sistema') ?> — MeuApp</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: sans-serif; background: #f0f2f5; color: #1f2937; }
+        nav  { background: #1e40af; color: #fff; padding: .8rem 1.5rem; display: flex; gap: 1.5rem; align-items: center; }
+        nav a { color: #bfdbfe; text-decoration: none; font-size: .9rem; }
+        nav a:hover { color: #fff; }
+        nav .brand { font-weight: 700; color: #fff; margin-right: auto; }
+        main { max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+        h1 { font-size: 1.5rem; margin-bottom: 1.5rem; }
+    </style>
+    <?php Layout::slot('head') ?>
+</head>
+<body>
+<nav>
+    <span class="brand">MeuApp</span>
+    <?php if (isLoggedIn()): ?>
+        <a href="<?= url('/dashboard') ?>">Dashboard</a>
+        <?php if (userRole() === 'admin'): ?>
+            <a href="<?= url('/admin') ?>">Admin</a>
+            <a href="<?= url('/admin/users') ?>">Usuários</a>
+        <?php endif; ?>
+        <a href="<?= url('/logout') ?>">Sair (<?= htmlspecialchars($_SESSION['user_name']) ?>)</a>
+    <?php else: ?>
+        <a href="<?= url('/login') ?>">Entrar</a>
+    <?php endif; ?>
+</nav>
+
+<main>
+    <?php Layout::slot('content') ?>
+</main>
+
+<?php Layout::slot('scripts') ?>
+</body>
+</html>
+
+
+================================================================================
+ARQUIVO: app/views/components/alert.php
+================================================================================
+<?php
+/**
+ * Componente de alerta.
+ * Uso: component('alert', ['type' => 'error', 'message' => 'Ops!'])
+ * Types: error | success | warning | info
+ */
+$colors = [
+    'error'   => ['#fef2f2', '#dc2626', '#fee2e2'],
+    'success' => ['#f0fdf4', '#16a34a', '#dcfce7'],
+    'warning' => ['#fffbeb', '#d97706', '#fef3c7'],
+    'info'    => ['#eff6ff', '#2563eb', '#dbeafe'],
+];
+[$bg, $text, $border] = $colors[$type ?? 'info'];
+?>
+<div style="background:<?= $bg ?>;color:<?= $text ?>;border:1px solid <?= $border ?>;padding:.75rem 1rem;border-radius:6px;margin-bottom:1rem;font-size:.9rem">
+    <?= htmlspecialchars($message ?? '') ?>
+</div>
+
+
+================================================================================
+ARQUIVO: app/views/components/table.php
+================================================================================
+<?php
+/**
+ * Componente de tabela genérica.
+ * Uso: component('table', ['columns' => [...], 'rows' => [...]])
+ *
+ * $columns = ['id' => 'ID', 'name' => 'Nome', 'email' => 'E-mail']
+ * $rows    = $repo->all()
+ */
+?>
+<div style="overflow-x:auto">
+<table style="width:100%;border-collapse:collapse;font-size:.9rem">
+    <thead>
+        <tr style="background:#f9fafb;border-bottom:2px solid #e5e7eb">
+            <?php foreach ($columns as $label): ?>
+                <th style="padding:.6rem 1rem;text-align:left;font-weight:600;color:#374151">
+                    <?= htmlspecialchars($label) ?>
+                </th>
+            <?php endforeach; ?>
+        </tr>
+    </thead>
+    <tbody>
+        <?php if (empty($rows)): ?>
+            <tr>
+                <td colspan="<?= count($columns) ?>" style="padding:2rem;text-align:center;color:#9ca3af">
+                    Nenhum registro encontrado.
+                </td>
+            </tr>
+        <?php else: ?>
+            <?php foreach ($rows as $row): ?>
+                <tr style="border-bottom:1px solid #f3f4f6">
+                    <?php foreach (array_keys($columns) as $key): ?>
+                        <td style="padding:.6rem 1rem;color:#1f2937">
+                            <?= htmlspecialchars((string)($row[$key] ?? '—')) ?>
+                        </td>
+                    <?php endforeach; ?>
+                </tr>
+            <?php endforeach; ?>
+        <?php endif; ?>
+    </tbody>
+</table>
+</div>
+
+
+================================================================================
+ARQUIVO: app/views/errors/403.php
+================================================================================
+<?php
+Layout::set('main');
+Layout::block('title', '403 — Acesso negado');
+Layout::start('content');
+?>
+<div style="text-align:center;padding:4rem 0">
+    <h1 style="font-size:5rem;font-weight:800;color:#fee2e2;margin:0">403</h1>
+    <p style="font-size:1.25rem;color:#6b7280;margin:.5rem 0 2rem">Você não tem permissão para acessar esta página.</p>
+    <a href="<?= BASE_URL ?>/" style="background:#2563eb;color:#fff;padding:.6rem 1.5rem;border-radius:6px;text-decoration:none">
+        Voltar ao início
+    </a>
+</div>
+<?php Layout::end(); ?>
+
+
+================================================================================
+ARQUIVO: app/views/errors/404.php
+================================================================================
+<?php
+Layout::set('main');
+Layout::block('title', '404 — Página não encontrada');
+Layout::start('content');
+?>
+<div style="text-align:center;padding:4rem 0">
+    <h1 style="font-size:5rem;font-weight:800;color:#e5e7eb;margin:0">404</h1>
+    <p style="font-size:1.25rem;color:#6b7280;margin:.5rem 0 2rem">Essa página não existe.</p>
+    <a href="<?= BASE_URL ?>/" style="background:#2563eb;color:#fff;padding:.6rem 1.5rem;border-radius:6px;text-decoration:none">
+        Voltar ao início
+    </a>
+</div>
+<?php Layout::end(); ?>
+
+
+================================================================================
+ARQUIVO: app/views/errors/500.php
+================================================================================
+<?php
+Layout::set('main');
+Layout::block('title', '500 — Erro interno');
+Layout::start('content');
+?>
+<div style="text-align:center;padding:4rem 0">
+    <h1 style="font-size:5rem;font-weight:800;color:#fef3c7;margin:0">500</h1>
+    <p style="font-size:1.25rem;color:#6b7280;margin:.5rem 0 2rem">Algo deu errado. O erro foi registrado.</p>
+    <a href="<?= BASE_URL ?>/" style="background:#2563eb;color:#fff;padding:.6rem 1.5rem;border-radius:6px;text-decoration:none">
+        Voltar ao início
+    </a>
+</div>
+<?php Layout::end(); ?>
+
+
+================================================================================
+ARQUIVO: app/views/auth/login.php
+================================================================================
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Login</title>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f0f2f5; }
+        .box { background: #fff; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,.1); width: 320px; }
+        h2 { margin: 0 0 1.5rem; text-align: center; }
+        input { width: 100%; padding: .6rem; margin-bottom: 1rem; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        button { width: 100%; padding: .7rem; background: #2563eb; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; }
+        .error { color: #dc2626; margin-bottom: 1rem; font-size: .9rem; }
+    </style>
+</head>
+<body>
+<div class="box">
+    <h2>Entrar</h2>
+    <?php if (!empty($error)): ?>
+        <p class="error"><?= htmlspecialchars($error) ?></p>
+    <?php endif; ?>
+    <form method="POST" action="<?= url('/login') ?>">
+        <input type="hidden" name="csrf_token" value="<?= csrfToken() ?>">
+        <input type="email"    name="email"    placeholder="E-mail"  required>
+        <input type="password" name="password" placeholder="Senha"   required>
+        <button type="submit">Entrar</button>
+    </form>
+</div>
+</body>
+</html>
+
+
+================================================================================
+ARQUIVO: app/views/admin/index.php
+================================================================================
+<?php
+// Define qual layout usar
+Layout::set('main');
+
+// Bloco simples
+Layout::block('title', 'Painel Admin');
+
+// Bloco com HTML
+Layout::start('content');
+?>
+
+<h1>Painel Admin</h1>
+<p>Bem-vindo, <strong><?= htmlspecialchars($userName) ?></strong>.</p>
+
+<ul style="margin-top:1rem;line-height:2">
+    <li><a href="<?= BASE_URL ?>/admin/users">Gerenciar Usuários</a></li>
+    <li><a href="<?= BASE_URL ?>/admin/reports">Relatórios</a></li>
+</ul>
+
+<?php Layout::end(); ?>
+
+
+================================================================================
+ARQUIVO: app/views/admin/users.php
+================================================================================
+<?php
+Layout::set('main');
+Layout::block('title', $title);
+Layout::start('content');
+?>
+
+<h1><?= htmlspecialchars($title) ?></h1>
+
+<?php if (!empty($errors)): ?>
+    <?php component('alert', ['type' => 'error', 'message' => implode(' ', $errors)]) ?>
+<?php endif; ?>
+
+<?php component('table', ['columns' => $columns, 'rows' => $users]) ?>
+
+<?php Layout::end(); ?>
+
+
+================================================================================
+ARQUIVO: app/views/clientes/index.php
+================================================================================
+<?php
+Layout::set('main');
+Layout::block('title', 'Clientes');
+
+// CSS e JS do módulo — carregados APENAS neste módulo
+Layout::block('head', '<link rel="stylesheet" href="' . url('assets/clientes/clientes.css') . '">');
+Layout::block('scripts', '<script src="' . url('assets/clientes/clientes.js') . '"></script>');
+
+Layout::start('content');
+?>
+
+<div class="clientes-toolbar">
+    <h1>Clientes</h1>
+    <?php if (RbacService::can('cliente.create')): ?>
+        <a href="<?= url('/clientes/novo') ?>" class="btn btn-primary">+ Novo cliente</a>
+    <?php endif; ?>
+</div>
+
+<div class="clientes-table-wrap">
+    <?php if (empty($clientes)): ?>
+        <p class="clientes-vazio">Nenhum cliente cadastrado ainda.</p>
+    <?php else: ?>
+        <table class="clientes-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Nome</th>
+                    <th>CPF</th>
+                    <th>Cadastro</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php foreach ($clientes as $c): ?>
+                <tr>
+                    <td><?= $c['id'] ?></td>
+                    <td><?= htmlspecialchars($c['nome']) ?></td>
+                    <td><?= htmlspecialchars($c['cpf']) ?></td>
+                    <td><?= DateUtil::toBrFull($c['created_at']) ?></td>
+                    <td class="td-acoes">
+                        <?php if (RbacService::can('cliente.edit')): ?>
+                            <a href="<?= url("/clientes/{$c['id']}/editar") ?>" class="btn btn-secondary btn-sm">Editar</a>
+                        <?php endif; ?>
+
+                        <?php if (RbacService::can('cliente.delete')): ?>
+                            <form method="POST" action="<?= url("/clientes/{$c['id']}/deletar") ?>" style="display:inline">
+                                <input type="hidden" name="csrf_token" value="<?= csrfToken() ?>">
+                                <button type="submit" class="btn btn-danger btn-sm"
+                                    onclick="return confirmarDelete(this.form, '<?= htmlspecialchars(addslashes($c['nome'])) ?>')">
+                                    Excluir
+                                </button>
+                            </form>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+</div>
+
+<?php Layout::end(); ?>
+
+
+================================================================================
+ARQUIVO: app/views/clientes/form.php
+================================================================================
+<?php
+$editando = $cliente !== null;
+
+Layout::set('main');
+Layout::block('title', $editando ? 'Editar Cliente' : 'Novo Cliente');
+
+// CSS e JS do módulo
+Layout::block('head', '<link rel="stylesheet" href="' . url('assets/clientes/clientes.css') . '">');
+Layout::block('scripts', '<script src="' . url('assets/clientes/clientes.js') . '"></script>');
+
+Layout::start('content');
+?>
+
+<div class="clientes-toolbar">
+    <h1><?= $editando ? 'Editar Cliente' : 'Novo Cliente' ?></h1>
+    <a href="<?= url('/clientes') ?>" class="btn btn-secondary">← Voltar</a>
+</div>
+
+<div class="clientes-form-card">
+    <form
+        method="POST"
+        action="<?= $editando ? url("/clientes/{$cliente['id']}") : url('/clientes') ?>"
+        class="clientes-form"
+        novalidate
+    >
+        <input type="hidden" name="csrf_token" value="<?= csrfToken() ?>">
+
+        <!-- Nome -->
+        <div class="form-group">
+            <label for="nome">Nome completo</label>
+            <input
+                type="text"
+                id="nome"
+                name="nome"
+                value="<?= htmlspecialchars($cliente['nome'] ?? old('nome', '')) ?>"
+                placeholder="Ex: João da Silva"
+                maxlength="100"
+                autocomplete="off"
+                class="<?= isset($erros['nome']) ? 'campo-erro' : '' ?>"
+            >
+            <?php if (!empty($erros['nome'])): ?>
+                <span class="form-erro"><?= htmlspecialchars($erros['nome']) ?></span>
+            <?php endif; ?>
+        </div>
+
+        <!-- CPF com máscara automática -->
+        <div class="form-group">
+            <label for="cpf">CPF</label>
+            <input
+                type="text"
+                id="cpf"
+                name="cpf"
+                value="<?= htmlspecialchars($cliente['cpf'] ?? old('cpf', '')) ?>"
+                placeholder="000.000.000-00"
+                maxlength="14"
+                inputmode="numeric"
+                autocomplete="off"
+                data-mask="cpf"
+                class="<?= isset($erros['cpf']) ? 'campo-erro' : '' ?>"
+            >
+            <span class="form-erro" id="erro-cpf">
+                <?= htmlspecialchars($erros['cpf'] ?? '') ?>
+            </span>
+        </div>
+
+        <div class="form-acoes">
+            <button type="submit" class="btn btn-primary">
+                <?= $editando ? 'Salvar alterações' : 'Cadastrar cliente' ?>
+            </button>
+            <a href="<?= url('/clientes') ?>" class="btn btn-secondary">Cancelar</a>
+        </div>
+    </form>
+</div>
+
+<?php Layout::end(); ?>
+
+
+================================================================================
+ARQUIVO: app/views/clientes/css/clientes.css
+================================================================================
+/* app/views/clientes/css/clientes.css
+   Estilos exclusivos do módulo Clientes.
+   Carregado apenas nas views deste módulo via Layout::block('head').
+   Nunca colocar estilos globais aqui — esse arquivo pertence só ao módulo.
+*/
+
+/* ── Toolbar (título + botão novo) ─────────────────────────────────────────── */
+.clientes-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.clientes-toolbar h1 {
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: #111827;
+    margin: 0;
+}
+
+/* ── Tabela ─────────────────────────────────────────────────────────────────── */
+.clientes-table-wrap {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    overflow: hidden;
+}
+
+.clientes-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .9rem;
+}
+
+.clientes-table thead tr {
+    background: #f9fafb;
+    border-bottom: 2px solid #e5e7eb;
+}
+
+.clientes-table th {
+    padding: .7rem 1.2rem;
+    text-align: left;
+    font-weight: 600;
+    color: #374151;
+    font-size: .8rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+
+.clientes-table td {
+    padding: .75rem 1.2rem;
+    color: #1f2937;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.clientes-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.clientes-table tbody tr:hover {
+    background: #f9fafb;
+}
+
+.clientes-table .td-acoes {
+    display: flex;
+    gap: .5rem;
+}
+
+/* ── Formulário ─────────────────────────────────────────────────────────────── */
+.clientes-form-card {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    padding: 2rem;
+    max-width: 520px;
+}
+
+.form-group {
+    margin-bottom: 1.25rem;
+}
+
+.form-group label {
+    display: block;
+    font-size: .85rem;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: .4rem;
+}
+
+.form-group input {
+    width: 100%;
+    padding: .55rem .8rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: .95rem;
+    color: #111827;
+    transition: border-color .15s, box-shadow .15s;
+    outline: none;
+}
+
+.form-group input:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37,99,235,.15);
+}
+
+.form-group input.campo-erro {
+    border-color: #dc2626;
+}
+
+.form-group input.campo-erro:focus {
+    box-shadow: 0 0 0 3px rgba(220,38,38,.15);
+}
+
+.form-erro {
+    display: block;
+    margin-top: .3rem;
+    font-size: .8rem;
+    color: #dc2626;
+}
+
+.form-acoes {
+    display: flex;
+    gap: .75rem;
+    margin-top: 1.75rem;
+    flex-wrap: wrap;
+}
+
+/* ── Botões ─────────────────────────────────────────────────────────────────── */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .5rem 1.1rem;
+    border-radius: 6px;
+    font-size: .875rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    text-decoration: none;
+    transition: opacity .15s, background .15s;
+    white-space: nowrap;
+}
+
+.btn:hover { opacity: .88; }
+
+.btn-primary   { background: #2563eb; color: #fff; }
+.btn-secondary { background: #e5e7eb; color: #374151; }
+.btn-danger    { background: #dc2626; color: #fff; }
+.btn-sm        { padding: .3rem .7rem; font-size: .8rem; }
+
+/* ── Toast de feedback ──────────────────────────────────────────────────────── */
+.toast {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    background: #1f2937;
+    color: #fff;
+    padding: .75rem 1.25rem;
+    border-radius: 8px;
+    font-size: .875rem;
+    box-shadow: 0 4px 16px rgba(0,0,0,.18);
+    animation: slideUp .25s ease;
+    z-index: 1000;
+}
+
+@keyframes slideUp {
+    from { transform: translateY(12px); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* ── Vazio ──────────────────────────────────────────────────────────────────── */
+.clientes-vazio {
+    padding: 3rem;
+    text-align: center;
+    color: #9ca3af;
+    font-size: .95rem;
+}
+
+
+================================================================================
+ARQUIVO: app/views/clientes/js/clientes.js
+================================================================================
+/* app/views/clientes/js/clientes.js
+   Erros sempre vão para o console com contexto (função + dado).
+   Nunca use alert() para erros — use console.error() e feedback na UI.
+*/
+
+// ── Máscara CPF ───────────────────────────────────────────────────────────────
+
+function mascaraCpf(input) {
+    input.addEventListener('input', function () {
+        try {
+            let v = this.value.replace(/\D/g, '').substring(0, 11);
+
+            if (v.length > 9)      v = v.replace(/^(\d{3})(\d{3})(\d{3})(\d{1,2})$/, '$1.$2.$3-$4');
+            else if (v.length > 6) v = v.replace(/^(\d{3})(\d{3})(\d{1,3})$/,        '$1.$2.$3');
+            else if (v.length > 3) v = v.replace(/^(\d{3})(\d{1,3})$/,               '$1.$2');
+
+            this.value = v;
+        } catch (e) {
+            console.error('[clientes] mascaraCpf: erro ao formatar', { valor: this.value, erro: e.message });
+        }
+    });
+}
+
+// ── Validação CPF (dígitos verificadores) ─────────────────────────────────────
+
+function cpfValido(cpf) {
+    const n = cpf.replace(/\D/g, '');
+    if (n.length !== 11 || /^(\d)\1{10}$/.test(n)) return false;
+
+    for (let t = 9; t < 11; t++) {
+        let soma = 0;
+        for (let i = 0; i < t; i++) soma += parseInt(n[i]) * (t + 1 - i);
+        const r = (soma * 10) % 11;
+        if (parseInt(n[t]) !== (r > 9 ? 0 : r)) return false;
+    }
+    return true;
+}
+
+// ── Confirmação de exclusão ───────────────────────────────────────────────────
+
+function confirmarDelete(form, nome) {
+    if (!confirm(`Excluir "${nome}"?\n\nEsta ação não pode ser desfeita.`)) return false;
+    form.submit();
+    return true;
+}
+
+// ── Toast de feedback ─────────────────────────────────────────────────────────
+
+function exibirToast() {
+    try {
+        const msgs = {
+            criado:     '✓ Cliente criado com sucesso.',
+            atualizado: '✓ Cliente atualizado com sucesso.',
+            deletado:   '✓ Cliente excluído com sucesso.',
+        };
+
+        const ok  = new URLSearchParams(window.location.search).get('ok');
+        const msg = msgs[ok];
+        if (!msg) return;
+
+        const toast = document.createElement('div');
+        toast.className   = 'toast';
+        toast.textContent = msg;
+        document.body.appendChild(toast);
+
+        setTimeout(() => toast.remove(), 3500);
+        window.history.replaceState({}, '', window.location.pathname);
+    } catch (e) {
+        console.error('[clientes] exibirToast: falhou', e.message);
+    }
+}
+
+// ── Validação do formulário no submit ─────────────────────────────────────────
+
+function validarForm(form) {
+    let valido = true;
+
+    try {
+        const cpfInput = form.querySelector('[name="cpf"]');
+        const cpfErro  = form.querySelector('#erro-cpf');
+
+        if (!cpfInput) {
+            console.warn('[clientes] validarForm: campo cpf não encontrado no form');
+            return true;
+        }
+
+        if (!cpfValido(cpfInput.value)) {
+            if (cpfErro) cpfErro.textContent = 'CPF inválido.';
+            cpfInput.classList.add('campo-erro');
+            cpfInput.focus();
+            console.warn('[clientes] validarForm: CPF inválido digitado', { cpf: cpfInput.value });
+            valido = false;
+        } else {
+            if (cpfErro) cpfErro.textContent = '';
+            cpfInput.classList.remove('campo-erro');
+        }
+    } catch (e) {
+        console.error('[clientes] validarForm: erro inesperado', e.message);
+    }
+
+    return valido;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', function () {
+    try {
+        document.querySelectorAll('[data-mask="cpf"]').forEach(mascaraCpf);
+        exibirToast();
+
+        const form = document.querySelector('.clientes-form');
+        if (form) {
+            form.addEventListener('submit', function (e) {
+                if (!validarForm(this)) {
+                    e.preventDefault();
+                    console.info('[clientes] submit bloqueado: formulário inválido');
+                }
+            });
+        }
+    } catch (e) {
+        console.error('[clientes] init: falha na inicialização do módulo', e.message);
+    }
+});
+
+
+================================================================================
+ARQUIVO: app/views/pedidos/index.php
+================================================================================
+<?php
+Layout::set('main');
+Layout::block('title', 'Pedidos');
+Layout::block('head',    '<link rel="stylesheet" href="' . url('assets/pedidos/pedidos.css') . '">');
+Layout::block('scripts', '<script src="' . url('assets/pedidos/pedidos.js') . '"></script>');
+Layout::start('content');
+?>
+
+<div class="pedidos-toolbar">
+    <h1>Pedidos</h1>
+    <?php if (RbacService::can('pedido.create')): ?>
+        <a href="<?= url('/pedidos/novo') ?>" class="btn btn-primary">+ Novo pedido</a>
+    <?php endif; ?>
+</div>
+
+<div class="pedidos-table-wrap">
+    <?php if (empty($pedidos)): ?>
+        <p style="padding:3rem;text-align:center;color:#9ca3af">Nenhum pedido cadastrado.</p>
+    <?php else: ?>
+        <table class="pedidos-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Cliente</th>
+                    <th>Itens</th>
+                    <th>Total</th>
+                    <th>Status</th>
+                    <th>Data</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php foreach ($pedidos as $p): ?>
+                <tr>
+                    <td><?= $p['id'] ?></td>
+                    <td><?= htmlspecialchars($p['cliente_nome']) ?></td>
+                    <td>—</td>
+                    <td>R$ <?= number_format($p['total'], 2, ',', '.') ?></td>
+                    <td><span class="badge badge-<?= $p['status'] ?>"><?= ucfirst($p['status']) ?></span></td>
+                    <td><?= DateUtil::toBrFull($p['created_at']) ?></td>
+                    <td style="display:flex;gap:.5rem">
+                        <?php if (RbacService::can('pedido.edit')): ?>
+                            <a href="<?= url("/pedidos/{$p['id']}/editar") ?>" class="btn btn-secondary btn-sm">Editar</a>
+                        <?php endif; ?>
+                        <?php if (RbacService::can('pedido.delete')): ?>
+                            <form method="POST" action="<?= url("/pedidos/{$p['id']}/deletar") ?>">
+                                <input type="hidden" name="csrf_token" value="<?= csrfToken() ?>">
+                                <button class="btn btn-danger btn-sm"
+                                    onclick="return confirm('Excluir pedido #<?= $p['id'] ?>?')">
+                                    Excluir
+                                </button>
+                            </form>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+</div>
+
+<?php Layout::end(); ?>
+
+
+================================================================================
+ARQUIVO: app/views/pedidos/form.php
+================================================================================
+<?php
+$editando = $pedido !== null;
+
+Layout::set('main');
+Layout::block('title', $editando ? 'Editar Pedido' : 'Novo Pedido');
+
+// CSS do módulo
+Layout::block('head', '<link rel="stylesheet" href="' . url('assets/pedidos/pedidos.css') . '">');
+
+// JS: utils compartilhados ANTES do JS do módulo
+Layout::block('scripts',
+    '<script src="' . url('assets/js/utils/api.js') . '"></script>' .
+    '<script src="' . url('assets/js/utils/autocomplete.js') . '"></script>' .
+    '<script src="' . url('assets/js/utils/state.js') . '"></script>' .
+    '<script>
+        // Estado inicial injetado pelo PHP — em edição, vem com os itens do banco
+        window.PEDIDO_INICIAL = ' . json_encode([
+            'desconto' => (float) ($pedido['desconto'] ?? 0),
+            'itens'    => array_map(fn($it) => [
+                'produto_id'   => $it['produto_id'],
+                'produto_nome' => $it['produto_nome'] ?? '',
+                'preco_unit'   => (float) $it['preco_unit'],
+                'quantidade'   => (int)   $it['quantidade'],
+                'subtotal'     => (float) $it['subtotal'],
+            ], $itens),
+        ]) . ';
+        window.BASE_URL = "' . BASE_URL . '";
+    </script>' .
+    '<script src="' . url('assets/pedidos/pedidos.js') . '"></script>'
+);
+
+Layout::start('content');
+?>
+
+<div class="pedidos-toolbar">
+    <h1><?= $editando ? "Editar Pedido #{$pedido['id']}" : 'Novo Pedido' ?></h1>
+    <a href="<?= url('/pedidos') ?>" class="btn btn-secondary">← Voltar</a>
+</div>
+
+<div class="pedido-form-card">
+<form
+    id="pedido-form"
+    method="POST"
+    action="<?= $editando ? url("/pedidos/{$pedido['id']}") : url('/pedidos') ?>"
+    novalidate
+>
+    <input type="hidden" name="csrf_token" value="<?= csrfToken() ?>">
+    <!-- Itens serializados pelo JS antes do submit -->
+    <input type="hidden" name="itens_json" id="itens_json" value="">
+
+    <?php if (!empty($erros)): ?>
+        <div style="background:#fef2f2;border:1px solid #fecaca;color:#dc2626;padding:.75rem 1rem;border-radius:6px;margin-bottom:1.5rem;font-size:.9rem">
+            <?= implode('<br>', array_map('htmlspecialchars', $erros)) ?>
+        </div>
+    <?php endif; ?>
+
+    <!-- ── Seção: Cliente ──────────────────────────────────────────────────── -->
+    <div class="form-section">
+        <div class="form-section-title">Cliente</div>
+        <div class="form-row">
+            <div class="form-group" style="position:relative">
+                <label for="cliente-busca">Buscar cliente (nome ou CPF)</label>
+                <input
+                    type="text"
+                    id="cliente-busca"
+                    placeholder="Digite para buscar…"
+                    value="<?= htmlspecialchars($pedido['cliente_nome'] ?? '') ?>"
+                    autocomplete="off"
+                >
+                <!-- Campo hidden que vai no POST -->
+                <input type="hidden" name="cliente_id" id="cliente_id"
+                       value="<?= (int) ($pedido['cliente_id'] ?? 0) ?>">
+                <?php if (!empty($erros['cliente_id'])): ?>
+                    <span class="form-erro"><?= htmlspecialchars($erros['cliente_id']) ?></span>
+                <?php endif; ?>
+            </div>
+
+            <div class="form-group">
+                <label for="desconto">Desconto (%)</label>
+                <input
+                    type="number"
+                    name="desconto"
+                    id="desconto"
+                    value="<?= (float) ($pedido['desconto'] ?? 0) ?>"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    placeholder="0"
+                >
+                <?php if (!empty($erros['desconto'])): ?>
+                    <span class="form-erro"><?= htmlspecialchars($erros['desconto']) ?></span>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Seção: Itens ────────────────────────────────────────────────────── -->
+    <div class="form-section">
+        <div class="form-section-title">Itens do pedido</div>
+
+        <?php if (!empty($erros['itens'])): ?>
+            <span class="form-erro" style="display:block;margin-bottom:.75rem">
+                <?= htmlspecialchars($erros['itens']) ?>
+            </span>
+        <?php endif; ?>
+
+        <div class="itens-header">
+            <span>Produto</span>
+            <span>Qtd</span>
+            <span>Preço unit.</span>
+            <span>Subtotal</span>
+            <span></span>
+        </div>
+
+        <!-- Itens renderizados e gerenciados pelo JS -->
+        <div id="itens-lista"></div>
+
+        <button type="button" id="btn-adicionar-item" class="btn btn-secondary btn-sm btn-adicionar-item">
+            + Adicionar item
+        </button>
+    </div>
+
+    <!-- ── Totais ──────────────────────────────────────────────────────────── -->
+    <div class="pedido-totais">
+        <table>
+            <tr>
+                <td>Subtotal</td>
+                <td>R$ <span id="total-subtotal">0,00</span></td>
+            </tr>
+            <tr>
+                <td>Desconto</td>
+                <td><span id="total-desconto">- R$ 0,00</span></td>
+            </tr>
+            <tr class="linha-total">
+                <td>Total</td>
+                <td>R$ <span id="total-final">0,00</span></td>
+            </tr>
+        </table>
+    </div>
+
+    <!-- ── Observação ──────────────────────────────────────────────────────── -->
+    <div class="form-section" style="margin-top:1.5rem">
+        <div class="form-group">
+            <label for="observacao">Observação</label>
+            <textarea name="observacao" id="observacao" rows="3"
+                      placeholder="Opcional…"><?= htmlspecialchars($pedido['observacao'] ?? '') ?></textarea>
+        </div>
+    </div>
+
+    <div class="form-acoes">
+        <button type="submit" class="btn btn-primary">
+            <?= $editando ? 'Salvar alterações' : 'Criar pedido' ?>
+        </button>
+        <a href="<?= url('/pedidos') ?>" class="btn btn-secondary">Cancelar</a>
+    </div>
+
+</form>
+</div>
+
+<?php Layout::end(); ?>
+
+
+================================================================================
+ARQUIVO: app/views/pedidos/css/pedidos.css
+================================================================================
+/* app/views/pedidos/css/pedidos.css */
+
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
+.pedidos-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+.pedidos-toolbar h1 { font-size: 1.4rem; font-weight: 600; margin: 0; }
+
+/* ── Tabela ──────────────────────────────────────────────────────────────── */
+.pedidos-table-wrap {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    overflow: hidden;
+}
+.pedidos-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.pedidos-table thead tr { background: #f9fafb; border-bottom: 2px solid #e5e7eb; }
+.pedidos-table th { padding: .7rem 1.2rem; text-align: left; font-weight: 600; color: #374151; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+.pedidos-table td { padding: .75rem 1.2rem; border-bottom: 1px solid #f3f4f6; }
+.pedidos-table tbody tr:hover { background: #f9fafb; }
+
+/* ── Formulário ──────────────────────────────────────────────────────────── */
+.pedido-form-card {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    padding: 2rem;
+}
+.form-section { margin-bottom: 2rem; }
+.form-section-title { font-size: .85rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #6b7280; margin-bottom: 1rem; padding-bottom: .5rem; border-bottom: 1px solid #f3f4f6; }
+.form-row { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.form-group { margin-bottom: 1rem; }
+.form-group label { display: block; font-size: .85rem; font-weight: 600; color: #374151; margin-bottom: .4rem; }
+.form-group input,
+.form-group select,
+.form-group textarea { width: 100%; padding: .55rem .8rem; border: 1px solid #d1d5db; border-radius: 6px; font-size: .95rem; color: #111827; outline: none; transition: border-color .15s, box-shadow .15s; }
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
+.form-group input.campo-erro { border-color: #dc2626; }
+.form-erro { display: block; margin-top: .3rem; font-size: .8rem; color: #dc2626; }
+
+/* ── Itens do pedido ─────────────────────────────────────────────────────── */
+.itens-header {
+    display: grid;
+    grid-template-columns: 1fr 100px 130px 130px 44px;
+    gap: .75rem;
+    padding: .5rem .75rem;
+    font-size: .78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: #6b7280;
+    border-bottom: 1px solid #e5e7eb;
+}
+.item-row {
+    display: grid;
+    grid-template-columns: 1fr 100px 130px 130px 44px;
+    gap: .75rem;
+    align-items: center;
+    padding: .6rem .75rem;
+    border-bottom: 1px solid #f3f4f6;
+    border-radius: 6px;
+    transition: background .1s;
+}
+.item-row:hover { background: #f9fafb; }
+.item-row input { padding: .4rem .6rem; font-size: .9rem; }
+.item-subtotal { font-weight: 600; color: #111827; }
+.btn-remover-item { background: none; border: none; color: #dc2626; cursor: pointer; font-size: 1.1rem; padding: 0; line-height: 1; opacity: .7; }
+.btn-remover-item:hover { opacity: 1; }
+.btn-adicionar-item { margin-top: .75rem; }
+
+/* ── Totais ──────────────────────────────────────────────────────────────── */
+.pedido-totais {
+    background: #f9fafb;
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    max-width: 320px;
+    margin-left: auto;
+    margin-top: 1rem;
+}
+.pedido-totais table { width: 100%; font-size: .9rem; border-collapse: collapse; }
+.pedido-totais td { padding: .3rem 0; }
+.pedido-totais td:last-child { text-align: right; font-weight: 600; }
+.pedido-totais .linha-total td { font-size: 1.05rem; font-weight: 700; border-top: 1px solid #e5e7eb; padding-top: .6rem; margin-top: .3rem; }
+
+/* ── Botões ──────────────────────────────────────────────────────────────── */
+.btn { display: inline-flex; align-items: center; gap: .35rem; padding: .5rem 1.1rem; border-radius: 6px; font-size: .875rem; font-weight: 500; cursor: pointer; border: none; text-decoration: none; transition: opacity .15s; white-space: nowrap; }
+.btn:hover { opacity: .88; }
+.btn-primary   { background: #2563eb; color: #fff; }
+.btn-secondary { background: #e5e7eb; color: #374151; }
+.btn-danger    { background: #dc2626; color: #fff; }
+.btn-sm        { padding: .3rem .7rem; font-size: .8rem; }
+.form-acoes    { display: flex; gap: .75rem; margin-top: 2rem; flex-wrap: wrap; }
+
+/* ── Autocomplete dropdown ───────────────────────────────────────────────── */
+.ac-dropdown {
+    position: absolute;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    background: #fff;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.1);
+    list-style: none;
+    margin: 0;
+    padding: .25rem 0;
+    z-index: 100;
+    display: none;
+    max-height: 240px;
+    overflow-y: auto;
+}
+.ac-item { padding: .55rem 1rem; cursor: pointer; font-size: .9rem; color: #1f2937; }
+.ac-item:hover,
+.ac-item--active { background: #eff6ff; color: #1d4ed8; }
+
+/* ── Toast ───────────────────────────────────────────────────────────────── */
+.toast { position: fixed; bottom: 1.5rem; right: 1.5rem; background: #1f2937; color: #fff; padding: .75rem 1.25rem; border-radius: 8px; font-size: .875rem; box-shadow: 0 4px 16px rgba(0,0,0,.18); animation: slideUp .25s ease; z-index: 1000; }
+@keyframes slideUp { from { transform: translateY(12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+/* ── Badge de status ─────────────────────────────────────────────────────── */
+.badge { display: inline-block; padding: .2rem .6rem; border-radius: 999px; font-size: .75rem; font-weight: 600; }
+.badge-rascunho   { background: #fef3c7; color: #92400e; }
+.badge-confirmado { background: #d1fae5; color: #065f46; }
+.badge-cancelado  { background: #fee2e2; color: #991b1b; }
+
+
+================================================================================
+ARQUIVO: app/views/pedidos/js/pedidos.js
+================================================================================
+/**
+ * app/views/pedidos/js/pedidos.js
+ *
+ * Responsabilidades deste arquivo:
+ *   1. Estado do formulário (store) — itens, desconto, totais
+ *   2. Autocomplete de cliente (busca por nome ou CPF)
+ *   3. Autocomplete de produto por item (busca por nome ou código)
+ *   4. Cálculo em tempo real ao mudar quantidade ou desconto
+ *   5. Renderização dos itens sem refresh
+ *   6. Serialização do estado para o campo hidden antes do submit
+ *   7. Toast de feedback via ?ok= na URL
+ *
+ * Depende de (carregados antes deste arquivo no layout):
+ *   /assets/js/utils/api.js
+ *   /assets/js/utils/autocomplete.js
+ *   /assets/js/utils/state.js
+ */
+
+document.addEventListener('DOMContentLoaded', () => {
+
+    // ── Só roda na página do formulário ────────────────────────────────────
+    const form = document.getElementById('pedido-form');
+    if (!form) {
+        exibirToast();
+        return;
+    }
+
+    // ── Estado inicial ───────────────────────────────────────────────────────
+    // Pode vir preenchido pelo PHP em modo edição (JSON embutido na view)
+    const inicial = window.PEDIDO_INICIAL ?? { desconto: 0, itens: [] };
+
+    const store = createStore(inicial, renderTudo);
+
+    // ── Referências DOM ──────────────────────────────────────────────────────
+    const clienteIdInput  = document.getElementById('cliente_id');
+    const clienteBuscaEl  = document.getElementById('cliente-busca');
+    const descontoInput   = document.getElementById('desconto');
+    const itensContainer  = document.getElementById('itens-lista');
+    const itensJsonInput  = document.getElementById('itens_json');
+    const btnAddItem      = document.getElementById('btn-adicionar-item');
+
+    // ── Autocomplete de cliente ──────────────────────────────────────────────
+    if (clienteBuscaEl) {
+        autocomplete({
+            input:    clienteBuscaEl,
+            url:      '/api/clientes/busca',
+            minChars: 2,
+            onSelect: (item) => {
+                clienteIdInput.value  = item.id;
+                clienteBuscaEl.value  = item.nome + ' — ' + item.cpf;
+            },
+            onClear: () => {
+                clienteIdInput.value = '';
+            },
+        });
+    }
+
+    // ── Desconto ─────────────────────────────────────────────────────────────
+    descontoInput?.addEventListener('input', () => {
+        const v = parseFloat(descontoInput.value.replace(',', '.')) || 0;
+        store.setState({ desconto: Math.min(100, Math.max(0, v)) });
+    });
+
+    // ── Adicionar item vazio ──────────────────────────────────────────────────
+    btnAddItem?.addEventListener('click', () => {
+        store.addItem('itens', {
+            produto_id:   null,
+            produto_nome: '',
+            preco_unit:   0,
+            quantidade:   1,
+            subtotal:     0,
+        });
+    });
+
+    // ── Render principal ──────────────────────────────────────────────────────
+    function renderTudo(state) {
+        renderItens(state.itens);
+        renderTotais(state);
+        serializarParaForm(state);
+    }
+
+    // ── Render: lista de itens ────────────────────────────────────────────────
+    function renderItens(itens) {
+        itensContainer.innerHTML = '';
+
+        itens.forEach((item, index) => {
+            const row = document.createElement('div');
+            row.className = 'item-row';
+            row.dataset.index = index;
+
+            row.innerHTML = `
+                <div class="form-group" style="margin:0;position:relative">
+                    <input
+                        type="text"
+                        class="produto-busca"
+                        value="${esc(item.produto_nome)}"
+                        placeholder="Buscar produto por nome ou código…"
+                        data-index="${index}"
+                    >
+                </div>
+                <div class="form-group" style="margin:0">
+                    <input
+                        type="number"
+                        class="item-qtd"
+                        value="${item.quantidade}"
+                        min="1"
+                        data-index="${index}"
+                    >
+                </div>
+                <div class="form-group" style="margin:0">
+                    <input
+                        type="text"
+                        class="item-preco"
+                        value="${formatarDecimal(item.preco_unit)}"
+                        data-index="${index}"
+                        readonly
+                    >
+                </div>
+                <div class="item-subtotal">
+                    R$ <span class="subtotal-valor">${formatarMoeda(item.subtotal)}</span>
+                </div>
+                <button type="button" class="btn-remover-item" data-index="${index}" title="Remover item">✕</button>
+            `;
+
+            itensContainer.appendChild(row);
+
+            // Autocomplete de produto neste item
+            const prodInput = row.querySelector('.produto-busca');
+            autocomplete({
+                input:    prodInput,
+                url:      '/api/produtos/busca',
+                minChars: 2,
+                onSelect: (prod) => {
+                    store.updateItem('itens', index, {
+                        produto_id:   prod.id,
+                        produto_nome: prod.nome,
+                        preco_unit:   parseFloat(prod.preco),
+                        subtotal:     calcSubtotal(parseFloat(prod.preco), store.getState().itens[index].quantidade),
+                    });
+                },
+                onClear: () => {
+                    store.updateItem('itens', index, {
+                        produto_id: null, produto_nome: '', preco_unit: 0, subtotal: 0,
+                    });
+                },
+            });
+        });
+
+        // ── Delegação de eventos nos itens ────────────────────────────────────
+
+        // Remover item
+        itensContainer.querySelectorAll('.btn-remover-item').forEach(btn => {
+            btn.addEventListener('click', () => {
+                store.removeItem('itens', parseInt(btn.dataset.index));
+            });
+        });
+
+        // Mudar quantidade → recalcula subtotal em tempo real
+        itensContainer.querySelectorAll('.item-qtd').forEach(input => {
+            input.addEventListener('input', () => {
+                const i   = parseInt(input.dataset.index);
+                const qtd = Math.max(1, parseInt(input.value) || 1);
+                const { itens } = store.getState();
+                store.updateItem('itens', i, {
+                    quantidade: qtd,
+                    subtotal:   calcSubtotal(itens[i].preco_unit, qtd),
+                });
+            });
+        });
+    }
+
+    // ── Render: totais ────────────────────────────────────────────────────────
+    function renderTotais(state) {
+        const subtotal = state.itens.reduce((acc, it) => acc + (it.subtotal || 0), 0);
+        const desc     = Math.min(100, Math.max(0, state.desconto || 0));
+        const valorDesc = subtotal * (desc / 100);
+        const total    = subtotal - valorDesc;
+
+        setText('total-subtotal',  formatarMoeda(subtotal));
+        setText('total-desconto',  `- R$ ${formatarMoeda(valorDesc)}`);
+        setText('total-final',     formatarMoeda(total));
+    }
+
+    // ── Serializa estado para o campo hidden antes do submit ──────────────────
+    function serializarParaForm(state) {
+        itensJsonInput.value = JSON.stringify(
+            state.itens
+                .filter(it => it.produto_id)   // ignora itens sem produto selecionado
+                .map(it => ({
+                    produto_id:  it.produto_id,
+                    quantidade:  it.quantidade,
+                    preco_unit:  it.preco_unit,
+                    subtotal:    it.subtotal,
+                }))
+        );
+    }
+
+    // ── Inicializa o store (dispara renderTudo com estado inicial) ────────────
+    store.setState({});
+
+    // ── Toast ─────────────────────────────────────────────────────────────────
+    exibirToast();
+});
+
+// ── Helpers puros ─────────────────────────────────────────────────────────────
+
+function calcSubtotal(preco, qtd) {
+    return Math.round(parseFloat(preco) * parseInt(qtd) * 100) / 100;
+}
+
+function formatarMoeda(v) {
+    return parseFloat(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatarDecimal(v) {
+    return parseFloat(v || 0).toFixed(2).replace('.', ',');
+}
+
+function esc(str) {
+    return String(str ?? '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+function setText(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+}
+
+function exibirToast() {
+    const msgs = { criado: '✓ Pedido criado.', atualizado: '✓ Pedido atualizado.', deletado: '✓ Pedido excluído.' };
+    const msg  = msgs[new URLSearchParams(location.search).get('ok')];
+    if (!msg) return;
+    const t = Object.assign(document.createElement('div'), { className: 'toast', textContent: msg });
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3500);
+    history.replaceState({}, '', location.pathname);
+}
+
+
+================================================================================
+ARQUIVO: public/assets/js/utils/api.js
+================================================================================
+/**
+ * public/assets/js/utils/api.js
+ * Wrapper de fetch com convenção de resposta do projeto.
+ *
+ * Convenção do servidor:
+ *   { ok: true,  data: [...] }
+ *   { ok: false, error: "mensagem" }
+ *
+ * Uso:
+ *   const { data } = await api.get('/api/produtos/busca?q=note');
+ *   const { data } = await api.post('/pedidos', formData);
+ */
+const api = (() => {
+    const BASE = window.BASE_URL ?? '';
+
+    async function request(method, url, body = null) {
+        const opts = {
+            method,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        };
+
+        if (body instanceof FormData) {
+            opts.body = body;
+        } else if (body !== null) {
+            opts.headers['Content-Type'] = 'application/json';
+            opts.body = JSON.stringify(body);
+        }
+
+        const res  = await fetch(BASE + url, opts);
+        const json = await res.json();
+
+        if (!json.ok) throw new Error(json.error ?? 'Erro desconhecido.');
+        return json;
+    }
+
+    return {
+        get:    (url)          => request('GET', url),
+        post:   (url, body)    => request('POST', url, body),
+        put:    (url, body)    => request('PUT', url, body),
+        delete: (url)          => request('DELETE', url),
+    };
+})();
+
+
+================================================================================
+ARQUIVO: public/assets/js/utils/autocomplete.js
+================================================================================
+/**
+ * public/assets/js/utils/autocomplete.js
+ * Autocomplete genérico — funciona em qualquer campo do projeto.
+ *
+ * Uso:
+ *   autocomplete({
+ *     input:     document.getElementById('cliente-busca'),
+ *     url:       '/api/clientes/busca',   // recebe ?q=termo
+ *     minChars:  2,
+ *     onSelect:  (item) => { ... },        // item = objeto retornado pela API
+ *   });
+ *
+ * A API deve retornar: { ok: true, data: [{ id, label, ...resto }] }
+ * O campo "label" é o que aparece na lista de sugestões.
+ */
+function autocomplete({ input, url, minChars = 2, onSelect, onClear }) {
+    let debounceTimer = null;
+    let activeIndex   = -1;
+    let items         = [];
+
+    // ── Cria o dropdown ───────────────────────────────────────────────────────
+    const dropdown = document.createElement('ul');
+    dropdown.className = 'ac-dropdown';
+    dropdown.setAttribute('role', 'listbox');
+    input.setAttribute('autocomplete', 'off');
+    input.setAttribute('aria-autocomplete', 'list');
+    input.parentElement.style.position = 'relative';
+    input.parentElement.appendChild(dropdown);
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    function show(results) {
+        items       = results;
+        activeIndex = -1;
+        dropdown.innerHTML = '';
+
+        if (!results.length) { hide(); return; }
+
+        results.forEach((item, i) => {
+            const li = document.createElement('li');
+            li.className = 'ac-item';
+            li.setAttribute('role', 'option');
+            li.textContent = item.label;
+            li.addEventListener('mousedown', (e) => {
+                e.preventDefault(); // evita blur no input antes do click
+                select(i);
+            });
+            dropdown.appendChild(li);
+        });
+
+        dropdown.style.display = 'block';
+    }
+
+    function hide() {
+        dropdown.style.display = 'none';
+        activeIndex = -1;
+    }
+
+    function select(i) {
+        if (!items[i]) return;
+        input.value = items[i].label;
+        hide();
+        onSelect?.(items[i]);
+    }
+
+    function highlight(i) {
+        const lis = dropdown.querySelectorAll('.ac-item');
+        lis.forEach(li => li.classList.remove('ac-item--active'));
+        if (lis[i]) {
+            lis[i].classList.add('ac-item--active');
+            lis[i].scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    // ── Eventos ───────────────────────────────────────────────────────────────
+    input.addEventListener('input', () => {
+        const q = input.value.trim();
+
+        if (q.length < minChars) {
+            hide();
+            onClear?.();
+            return;
+        }
+
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(async () => {
+            try {
+                const { data } = await api.get(`${url}?q=${encodeURIComponent(q)}`);
+                show(data);
+            } catch {
+                hide();
+            }
+        }, 280); // debounce — não dispara a cada tecla
+    });
+
+    input.addEventListener('keydown', (e) => {
+        const lis = dropdown.querySelectorAll('.ac-item');
+        if (!lis.length) return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeIndex = Math.min(activeIndex + 1, lis.length - 1);
+            highlight(activeIndex);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeIndex = Math.max(activeIndex - 1, 0);
+            highlight(activeIndex);
+        } else if (e.key === 'Enter' && activeIndex >= 0) {
+            e.preventDefault();
+            select(activeIndex);
+        } else if (e.key === 'Escape') {
+            hide();
+        }
+    });
+
+    input.addEventListener('blur', () => setTimeout(hide, 150));
+
+    // API pública — permite limpar de fora
+    return { hide, clear: () => { input.value = ''; hide(); onClear?.(); } };
+}
+
+
+================================================================================
+ARQUIVO: public/assets/js/utils/state.js
+================================================================================
+/**
+ * public/assets/js/utils/state.js
+ * Gerenciador de estado reativo — sem framework, sem dependências.
+ *
+ * Uso:
+ *   const store = createStore({ desconto: 0, itens: [] }, (state) => {
+ *       renderTotais(state);   // chamado automaticamente em cada setState
+ *   });
+ *
+ *   store.setState({ desconto: 10 });           // merge parcial
+ *   store.setState(s => ({ desconto: s.desconto + 5 })); // updater funcional
+ *   const { itens } = store.getState();
+ */
+function createStore(initialState, onChange) {
+    // Cópia profunda para não vazar referências
+    let state = structuredClone(initialState);
+
+    return {
+        getState() {
+            return structuredClone(state);
+        },
+
+        setState(patch) {
+            const next = typeof patch === 'function' ? patch(state) : patch;
+            state = { ...state, ...next };
+            onChange?.(structuredClone(state));
+        },
+
+        /**
+         * Substitui um item numa lista por índice.
+         * Uso: store.updateItem('itens', 2, { quantidade: 5 })
+         */
+        updateItem(listKey, index, patch) {
+            const list = [...(state[listKey] ?? [])];
+            list[index] = { ...list[index], ...patch };
+            this.setState({ [listKey]: list });
+        },
+
+        /**
+         * Remove um item de uma lista por índice.
+         */
+        removeItem(listKey, index) {
+            const list = (state[listKey] ?? []).filter((_, i) => i !== index);
+            this.setState({ [listKey]: list });
+        },
+
+        /**
+         * Adiciona um item a uma lista.
+         */
+        addItem(listKey, item) {
+            const list = [...(state[listKey] ?? []), item];
+            this.setState({ [listKey]: list });
+        },
+    };
+}
+
+
+================================================================================
+ARQUIVO: database/migration.sql
+================================================================================
+-- ============================================================================
+-- MIGRATION — Estrutura completa do banco
+-- Rodar uma vez: mysql -u root -p projeto_db < database/migration.sql
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS users (
+    id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name       VARCHAR(100)        NOT NULL,
+    email      VARCHAR(150)        NOT NULL UNIQUE,
+    password   VARCHAR(255)        NOT NULL,
+    role       VARCHAR(50)         NOT NULL DEFAULT 'user',
+    created_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_email (email),
+    INDEX idx_role  (role)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Cargos disponíveis no sistema
+CREATE TABLE IF NOT EXISTS roles (
+    id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name       VARCHAR(50)  NOT NULL UNIQUE,
+    label      VARCHAR(100) NOT NULL,
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Catálogo de permissões (ações do sistema)
+CREATE TABLE IF NOT EXISTS permissions (
+    id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    action     VARCHAR(100) NOT NULL UNIQUE,  -- ex: 'user.edit', 'report.export'
+    label      VARCHAR(150) NOT NULL DEFAULT '',
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Relação N:N cargos <-> permissões
+CREATE TABLE IF NOT EXISTS role_permissions (
+    role_id       INT UNSIGNED NOT NULL,
+    permission_id INT UNSIGNED NOT NULL,
+    PRIMARY KEY (role_id, permission_id),
+    FOREIGN KEY (role_id)       REFERENCES roles(id)       ON DELETE CASCADE,
+    FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Módulo: Clientes ─────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS clientes (
+    id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    nome       VARCHAR(100) NOT NULL,
+    cpf        CHAR(14)     NOT NULL UNIQUE,   -- armazenado como 000.000.000-00
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_cpf  (cpf),
+    INDEX idx_nome (nome)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Módulo: Pedidos ──────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS produtos (
+    id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    codigo     VARCHAR(30)      NOT NULL UNIQUE,
+    nome       VARCHAR(150)     NOT NULL,
+    preco      DECIMAL(10,2)    NOT NULL DEFAULT 0.00,
+    estoque    INT              NOT NULL DEFAULT 0,
+    ativo      TINYINT(1)       NOT NULL DEFAULT 1,
+    created_at DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_nome   (nome),
+    INDEX idx_codigo (codigo)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS pedidos (
+    id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    cliente_id   INT UNSIGNED     NOT NULL,
+    status       ENUM('rascunho','confirmado','cancelado') NOT NULL DEFAULT 'rascunho',
+    desconto     DECIMAL(5,2)     NOT NULL DEFAULT 0.00,  -- percentual
+    total        DECIMAL(10,2)    NOT NULL DEFAULT 0.00,
+    observacao   TEXT,
+    created_at   DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at   DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE RESTRICT,
+    INDEX idx_cliente (cliente_id),
+    INDEX idx_status  (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS pedido_itens (
+    id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    pedido_id   INT UNSIGNED  NOT NULL,
+    produto_id  INT UNSIGNED  NOT NULL,
+    quantidade  INT           NOT NULL DEFAULT 1,
+    preco_unit  DECIMAL(10,2) NOT NULL,   -- preço no momento da venda
+    subtotal    DECIMAL(10,2) NOT NULL,
+    FOREIGN KEY (pedido_id)  REFERENCES pedidos(id)  ON DELETE CASCADE,
+    FOREIGN KEY (produto_id) REFERENCES produtos(id) ON DELETE RESTRICT,
+    INDEX idx_pedido (pedido_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+================================================================================
+ARQUIVO: database/seed.sql
+================================================================================
+-- ============================================================================
+-- SEED — Dados iniciais
+-- Rodar após migration.sql
+-- ============================================================================
+
+-- ── Cargos ──────────────────────────────────────────────────────────────────
+INSERT IGNORE INTO roles (name, label) VALUES
+    ('admin',  'Administrador'),
+    ('editor', 'Editor'),
+    ('user',   'Usuário');
+
+-- ── Permissões disponíveis ───────────────────────────────────────────────────
+INSERT IGNORE INTO permissions (action, label) VALUES
+    ('dashboard.view', 'Ver dashboard'),
+    ('admin.view',     'Acessar painel admin'),
+    ('user.view',      'Listar usuários'),
+    ('user.edit',      'Editar usuários'),
+    ('user.delete',    'Excluir usuários'),
+    ('report.view',    'Ver relatórios'),
+    ('report.export',  'Exportar relatórios');
+
+-- ── Permissões por cargo ─────────────────────────────────────────────────────
+-- admin: tudo
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+    SELECT r.id, p.id FROM roles r, permissions p
+    WHERE r.name = 'admin';
+
+-- editor: dashboard + relatórios
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+    SELECT r.id, p.id FROM roles r, permissions p
+    WHERE r.name = 'editor'
+    AND   p.action IN ('dashboard.view', 'report.view');
+
+-- user: só dashboard
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+    SELECT r.id, p.id FROM roles r, permissions p
+    WHERE r.name = 'user'
+    AND   p.action = 'dashboard.view';
+
+-- ── Usuário admin inicial ────────────────────────────────────────────────────
+-- Senha: admin123  (trocar imediatamente após o primeiro login)
+INSERT IGNORE INTO users (name, email, password, role) VALUES (
+    'Administrador',
+    'admin@exemplo.com',
+    '$2y$12$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', -- admin123
+    'admin'
+);
+
+-- ── Permissões do módulo Clientes ────────────────────────────────────────────
+INSERT IGNORE INTO permissions (action, label) VALUES
+    ('cliente.view',   'Listar clientes'),
+    ('cliente.create', 'Criar cliente'),
+    ('cliente.edit',   'Editar cliente'),
+    ('cliente.delete', 'Excluir cliente');
+
+-- admin: todas as permissões de cliente
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+    SELECT r.id, p.id FROM roles r, permissions p
+    WHERE r.name = 'admin'
+    AND   p.action LIKE 'cliente.%';
+
+-- editor: só ver e criar
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+    SELECT r.id, p.id FROM roles r, permissions p
+    WHERE r.name = 'editor'
+    AND   p.action IN ('cliente.view', 'cliente.create');
+
+-- Clientes de exemplo
+INSERT IGNORE INTO clientes (nome, cpf) VALUES
+    ('João da Silva',   '111.444.777-35'),
+    ('Maria Oliveira',  '222.555.888-46'),
+    ('Carlos Pereira',  '333.666.999-57');
+
+-- ── Produtos de exemplo ───────────────────────────────────────────────────────
+INSERT IGNORE INTO produtos (codigo, nome, preco, estoque) VALUES
+    ('PROD-001', 'Notebook Dell Inspiron',   3299.90, 10),
+    ('PROD-002', 'Mouse Logitech MX Master', 399.90,  25),
+    ('PROD-003', 'Teclado Mecânico Redragon',279.90,  18),
+    ('PROD-004', 'Monitor LG 27"',           1599.90,  8),
+    ('PROD-005', 'Headset HyperX Cloud',     449.90,  15);
+
+-- ── Permissões do módulo Pedidos ─────────────────────────────────────────────
+INSERT IGNORE INTO permissions (action, label) VALUES
+    ('pedido.view',   'Listar pedidos'),
+    ('pedido.create', 'Criar pedido'),
+    ('pedido.edit',   'Editar pedido'),
+    ('pedido.delete', 'Excluir pedido');
+
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+    SELECT r.id, p.id FROM roles r, permissions p
+    WHERE r.name = 'admin' AND p.action LIKE 'pedido.%';
+
+

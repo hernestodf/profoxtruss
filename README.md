@@ -67,6 +67,16 @@ npm run test:regression   # só regressão
 
 O workflow em [`.github/workflows/playwright.yml`](.github/workflows/playwright.yml) roda a suíte a cada push/PR usando o servidor embutido do PHP (`php -S` + `public/router.php`) e um banco SQLite recriado do zero a partir de `database/migration.sql` + `database/seed.sql` — sem depender de nenhum ambiente externo.
 
+## Governança & práticas de engenharia
+
+Este projeto não tinha CI, testes automatizados nem histórico de git até esta rodada de trabalho. O que foi estabelecido:
+
+- **Todo bug corrigido ganha um teste de regressão que prova o bug antes de provar o fix.** Não "parece certo" — o teste é rodado contra o código antigo (falha, reproduzindo o defeito) e contra o código corrigido (passa), nos dois sentidos, antes de qualquer commit. Exemplos reais em [`tests/regression/`](tests/regression): um bug de seleção incorreta no canvas 2D/3D, e uma falha de CSRF na API JSON.
+- **CI como gate, não como enfeite**: o workflow sobe o app do zero (servidor + banco) a cada push/PR, sem depender de estado residual de nenhuma máquina — se passa no CI, passa em qualquer lugar.
+- **Deploy auditável, não "just push it"**: sem pipeline de deploy automatizado ainda (gap conhecido, documentado), mas o processo manual é disciplinado — backup do arquivo original antes de qualquer alteração em produção, upload verificado por checksum (`md5sum` local vs. remoto), e smoke test real (login + páginas críticas) depois de cada mudança, nos dois ambientes (local e produção) antes de considerar o trabalho concluído.
+- **Segurança tratada como parte do ciclo normal, não como auditoria à parte**: nesta mesma sessão, revisão de código encontrou e corrigiu CSRF ausente na API e exposição pública do banco SQLite (`.htaccess` não cobria a extensão) — corrigido e **verificado em produção**, incluindo confirmação de que o site continuou funcionando normalmente depois.
+- **Acesso a produção é auditado, não automático**: mudanças em ambiente de produção exigem autorização explícita antes de qualquer leitura ou escrita remota — não é assumido por padrão.
+
 ## Rodando localmente
 
 ```bash
